@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing credentials & local files
+nissaninfo/
+*.auth.json
+*.key
+.storage/
+*.log
+
+# Environments and IDEs
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

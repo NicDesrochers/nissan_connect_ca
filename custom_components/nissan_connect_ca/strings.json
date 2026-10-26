@@ -1,0 +1,149 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nissan Connect Canada",
+        "description": "Sign in with your Nissan Connect Canada account.",
+        "data": {
+          "username": "Email or username",
+          "password": "Password"
+        }
+      },
+      "select_vehicle": {
+        "title": "Choose a Nissan vehicle",
+        "description": "Select which vehicle to add to Home Assistant.",
+        "data": {
+          "vehicle_id": "Vehicle"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect Nissan Connect Canada",
+        "description": "Sign in again with your Nissan Connect Canada account.",
+        "data": {
+          "username": "Email or username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Login failed. Check the credentials and complete any Nissan verification prompt."
+    },
+    "abort": {
+      "already_configured": "This vehicle is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Nissan Connect Canada Options",
+        "description": "Configure vehicle data update intervals.",
+        "data": {
+          "update_interval": "Normal update interval (hours, 1-24)",
+          "charging_update_interval": "Charging update interval (minutes, 5-120)",
+          "climate_update_interval": "Active climate update interval (minutes, 2-60)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "odometer": {
+        "name": "Odometer"
+      },
+      "battery_level": {
+        "name": "Battery level"
+      },
+      "remaining_range": {
+        "name": "Remaining range"
+      },
+      "remaining_charge_time": {
+        "name": "Remaining charge time"
+      },
+      "interior_temperature": {
+        "name": "Interior temperature"
+      },
+      "tyre_pressure_front_left": {
+        "name": "Front-left tire pressure"
+      },
+      "tyre_pressure_front_right": {
+        "name": "Front-right tire pressure"
+      },
+      "tyre_pressure_rear_left": {
+        "name": "Rear-left tire pressure"
+      },
+      "tyre_pressure_rear_right": {
+        "name": "Rear-right tire pressure"
+      },
+      "oil_level": {
+        "name": "Oil level"
+      },
+      "engine_state": {
+        "name": "Engine state"
+      },
+      "last_updated": {
+        "name": "Last communication"
+      },
+      "due_mileage": {
+        "name": "Service due mileage"
+      }
+    },
+    "binary_sensor": {
+      "doors_locked": {
+        "name": "Doors locked"
+      },
+      "is_charging": {
+        "name": "Charging"
+      },
+      "is_plugged_in": {
+        "name": "Plugged in"
+      },
+      "warning_alert": {
+        "name": "Vehicle warning"
+      },
+      "battery_12v_alert": {
+        "name": "12V battery alert"
+      },
+      "hood": {
+        "name": "Hood"
+      },
+      "trunk": {
+        "name": "Trunk"
+      }
+    },
+    "lock": {
+      "door_lock": {
+        "name": "Door lock"
+      }
+    },
+    "climate": {
+      "climate": {
+        "name": "Climate"
+      }
+    },
+    "device_tracker": {
+      "vehicle_location": {
+        "name": "Vehicle location"
+      }
+    },
+    "button": {
+      "refresh_vehicle": {
+        "name": "Refresh vehicle data"
+      },
+      "remote_start": {
+        "name": "Start engine remotely"
+      },
+      "unlock_doors": {
+        "name": "Unlock doors"
+      },
+      "lock_doors": {
+        "name": "Lock doors"
+      },
+      "start_climate": {
+        "name": "Start climate"
+      },
+      "stop_climate": {
+        "name": "Stop climate"
+      }
+    }
+  }
+}

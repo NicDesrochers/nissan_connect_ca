@@ -1,0 +1,12 @@
+{
+  "domain": "nissan_connect_ca",
+  "name": "Nissan Connect Canada",
+  "version": "1.0.0",
+  "documentation": "https://github.com/NicDesrochers/nissan_connect_ca",
+  "issue_tracker": "https://github.com/NicDesrochers/nissan_connect_ca/issues",
+  "requirements": ["beautifulsoup4", "requests", "cryptography"],
+  "codeowners": ["@NicDesrochers"],
+  "iot_class": "cloud_polling",
+  "config_flow": true,
+  "integration_type": "hub"
+}

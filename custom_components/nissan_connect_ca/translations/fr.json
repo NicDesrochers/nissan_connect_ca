@@ -1,0 +1,149 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nissan Connect Canada",
+        "description": "Connectez-vous avec votre compte Nissan Connect Canada.",
+        "data": {
+          "username": "Courriel ou nom d'utilisateur",
+          "password": "Mot de passe"
+        }
+      },
+      "select_vehicle": {
+        "title": "Choisir un véhicule Nissan",
+        "description": "Sélectionnez le véhicule à ajouter à Home Assistant.",
+        "data": {
+          "vehicle_id": "Véhicule"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnecter Nissan Connect Canada",
+        "description": "Reconnectez-vous avec votre compte Nissan Connect Canada.",
+        "data": {
+          "username": "Courriel ou nom d'utilisateur",
+          "password": "Mot de passe"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Connexion impossible. Vérifiez les identifiants et complétez toute vérification Nissan demandée."
+    },
+    "abort": {
+      "already_configured": "Ce véhicule est déjà configuré."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Nissan Connect Canada",
+        "description": "Configurez les intervalles de mise à jour des données.",
+        "data": {
+          "update_interval": "Intervalle de mise à jour normal (heures, 1-24)",
+          "charging_update_interval": "Intervalle de mise à jour en recharge (minutes, 5-120)",
+          "climate_update_interval": "Intervalle de mise à jour quand la clim est active (minutes, 2-60)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "odometer": {
+        "name": "Odomètre"
+      },
+      "battery_level": {
+        "name": "Niveau de la batterie"
+      },
+      "remaining_range": {
+        "name": "Autonomie restante"
+      },
+      "remaining_charge_time": {
+        "name": "Temps de recharge restant"
+      },
+      "interior_temperature": {
+        "name": "Température intérieure"
+      },
+      "tyre_pressure_front_left": {
+        "name": "Pression pneu avant gauche"
+      },
+      "tyre_pressure_front_right": {
+        "name": "Pression pneu avant droit"
+      },
+      "tyre_pressure_rear_left": {
+        "name": "Pression pneu arrière gauche"
+      },
+      "tyre_pressure_rear_right": {
+        "name": "Pression pneu arrière droit"
+      },
+      "oil_level": {
+        "name": "Niveau d'huile"
+      },
+      "engine_state": {
+        "name": "État du moteur"
+      },
+      "last_updated": {
+        "name": "Dernière communication"
+      },
+      "due_mileage": {
+        "name": "Prochain entretien"
+      }
+    },
+    "binary_sensor": {
+      "doors_locked": {
+        "name": "Portes verrouillées"
+      },
+      "is_charging": {
+        "name": "En recharge"
+      },
+      "is_plugged_in": {
+        "name": "Chargeur branché"
+      },
+      "warning_alert": {
+        "name": "Avertissement du véhicule"
+      },
+      "battery_12v_alert": {
+        "name": "Alerte batterie 12V"
+      },
+      "hood": {
+        "name": "Capot"
+      },
+      "trunk": {
+        "name": "Coffre"
+      }
+    },
+    "lock": {
+      "door_lock": {
+        "name": "Verrouillage des portes"
+      }
+    },
+    "climate": {
+      "climate": {
+        "name": "Climatisation"
+      }
+    },
+    "device_tracker": {
+      "vehicle_location": {
+        "name": "Position du véhicule"
+      }
+    },
+    "button": {
+      "refresh_vehicle": {
+        "name": "Actualiser les données du véhicule"
+      },
+      "remote_start": {
+        "name": "Démarrer le moteur à distance"
+      },
+      "unlock_doors": {
+        "name": "Déverrouiller les portes"
+      },
+      "lock_doors": {
+        "name": "Verrouiller les portes"
+      },
+      "start_climate": {
+        "name": "Démarrer la climatisation"
+      },
+      "stop_climate": {
+        "name": "Arrêter la climatisation"
+      }
+    }
+  }
+}
