@@ -5,6 +5,7 @@ import logging
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
@@ -355,6 +356,7 @@ class NissanStartClimateButton(CoordinatorEntity, ButtonEntity):
         """Initialize the climate start button."""
         super().__init__(coordinator)
         self._api = api
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_start_climate"
         vehicle = coordinator.data["vehicle"]
         model = vehicle.get("model")
@@ -371,8 +373,23 @@ class NissanStartClimateButton(CoordinatorEntity, ButtonEntity):
         """Request remote climate start."""
         _LOGGER.debug("Start climate button pressed")
         try:
+            target_temp = 21.0
+            for state in self.hass.states.async_all("climate"):
+                if "nissan_connect_ca" in state.entity_id and (
+                    str(self._entry.entry_id) in state.entity_id
+                    or str(self._entry.data.get("vehicle_id")) in state.entity_id
+                    or (self.coordinator.data.get("vehicle", {}).get("model", "").lower() in state.entity_id.lower())
+                ):
+                    temp = state.attributes.get(ATTR_TEMPERATURE)
+                    if temp is not None:
+                        try:
+                            target_temp = float(temp)
+                            break
+                        except (ValueError, TypeError):
+                            pass
+
             req_id = await self.hass.async_add_executor_job(
-                self._api.start_climate, 21.0, "CELSIUS"
+                self._api.start_climate, target_temp, "CELSIUS"
             )
             if req_id:
                 self.hass.async_create_task(

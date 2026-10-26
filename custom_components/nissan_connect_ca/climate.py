@@ -15,6 +15,7 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import NissanConnectAuthenticationError, NissanConnectCommandError
@@ -61,7 +62,7 @@ async def async_setup_entry(
         async_add_entities([NissanVehicleClimate(coordinator, entry, api)])
 
 
-class NissanVehicleClimate(CoordinatorEntity, ClimateEntity):
+class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     """Representation of Nissan vehicle climate system."""
 
     _attr_has_entity_name = True
@@ -93,6 +94,23 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity):
             model=f"{year} {model}" if year and model else model,
             model_id=vehicle.get("modelCode"),
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state upon addition."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.attributes.get(ATTR_TEMPERATURE) is not None:
+                try:
+                    restored_temp = float(last_state.attributes[ATTR_TEMPERATURE])
+                    if self._attr_min_temp <= restored_temp <= self._attr_max_temp:
+                        self._target_temperature = restored_temp
+                        _LOGGER.debug(
+                            "Restored target temperature %s °C for %s",
+                            self._target_temperature,
+                            self.entity_id,
+                        )
+                except (ValueError, TypeError):
+                    pass
 
     @property
     def current_temperature(self) -> float | None:

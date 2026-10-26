@@ -653,6 +653,7 @@ class NissanConnectCAAPI:
                 "temperatureValue": float(temperature_value),
                 "unit": unit,
             },
+            "setAsDefault": True,
         }
         data = self._post_graphql("StartClimate", query, variables)
         start_result = data.get("startClimate") or {}
