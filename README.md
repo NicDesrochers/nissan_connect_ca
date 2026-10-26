@@ -82,3 +82,4 @@ Click **Configure** on any configured vehicle entry to customize the polling rat
 > This integration is an independent open-source project and is **not** affiliated with, maintained, authorized, or endorsed by Nissan Motor Co., Ltd., Nissan Canada, or any of their affiliates or subsidiaries.
 >
 > Use this integration at your own risk. The author is not responsible for any account suspension, battery drain, vehicle modifications, or misuse of the Nissan APIs.
+
