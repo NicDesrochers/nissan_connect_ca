@@ -16,6 +16,8 @@ jobs:
 
   hacs:
     runs-on: ubuntu-latest
+    # L'action HACS ne valide que les dépôts publics; elle s'activera automatiquement si le dépôt devient public.
+    if: ${{ !github.event.repository.private }}
     steps:
       - uses: actions/checkout@v4
       - uses: hacs/action@main
