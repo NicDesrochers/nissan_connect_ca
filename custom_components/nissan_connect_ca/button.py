@@ -135,8 +135,8 @@ async def async_setup_entry(
     async_add_entities,
 ) -> None:
     """Set up the remote-start button when Nissan reports it as requested."""
-    runtime = hass.data[DOMAIN][entry.entry_id]
-    coordinator = runtime["coordinator"]
+    runtime = entry.runtime_data
+    coordinator = runtime.coordinator
     vehicle = coordinator.data["vehicle"]
     services = vehicle.get("allVehicleServiceDetails", {}).get(
         "vehicleServiceDetails", []
@@ -152,7 +152,7 @@ async def async_setup_entry(
     buttons = [NissanRefreshButton(coordinator, entry)]
     if not is_electric and remote_start_requested and engine is not None:
         buttons.append(
-            NissanRemoteStartButton(coordinator, entry, runtime["api"], engine["id"])
+            NissanRemoteStartButton(coordinator, entry, runtime.api, engine["id"])
         )
 
     # Climatisation à distance (pour véhicules électriques ou services climatisation)
@@ -162,8 +162,8 @@ async def async_setup_entry(
         for service in services
     )
     if is_electric or climate_requested:
-        buttons.append(NissanStartClimateButton(coordinator, entry, runtime["api"]))
-        buttons.append(NissanStopClimateButton(coordinator, entry, runtime["api"]))
+        buttons.append(NissanStartClimateButton(coordinator, entry, runtime.api))
+        buttons.append(NissanStopClimateButton(coordinator, entry, runtime.api))
 
     # Recharge à distance (pour véhicules électriques)
     start_charge_requested = any(
@@ -172,8 +172,8 @@ async def async_setup_entry(
         for service in services
     )
     if is_electric or start_charge_requested:
-        buttons.append(NissanStartChargeButton(coordinator, entry, runtime["api"]))
-        buttons.append(NissanStopChargeButton(coordinator, entry, runtime["api"]))
+        buttons.append(NissanStartChargeButton(coordinator, entry, runtime.api))
+        buttons.append(NissanStopChargeButton(coordinator, entry, runtime.api))
 
     # Phares et avertisseur sonore à distance
     horn_lights_requested = any(
@@ -182,8 +182,8 @@ async def async_setup_entry(
         for service in services
     )
     if horn_lights_requested or not services:
-        buttons.append(NissanFlashLightsButton(coordinator, entry, runtime["api"]))
-        buttons.append(NissanFlashLightsHornButton(coordinator, entry, runtime["api"]))
+        buttons.append(NissanFlashLightsButton(coordinator, entry, runtime.api))
+        buttons.append(NissanFlashLightsHornButton(coordinator, entry, runtime.api))
 
     # Note: Les boutons individuels de verrouillage / déverrouillage sont omis
     # car ils sont désormais remplacés par la véritable entité Lock (lock.py).

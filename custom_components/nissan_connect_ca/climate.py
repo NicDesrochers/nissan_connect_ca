@@ -57,11 +57,11 @@ async def async_setup_entry(
     async_add_entities,
 ) -> None:
     """Set up Nissan vehicle climate control for electric vehicles."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator = entry.runtime_data.coordinator
     vehicle = (coordinator.data or {}).get("vehicle", {})
     is_electric = vehicle.get("engineType") == "Electric" or bool((coordinator.data or {}).get("battery"))
     if is_electric:
-        api = hass.data[DOMAIN][entry.entry_id]["api"]
+        api = entry.runtime_data.api
         async_add_entities([NissanVehicleClimate(coordinator, entry, api)])
 
 

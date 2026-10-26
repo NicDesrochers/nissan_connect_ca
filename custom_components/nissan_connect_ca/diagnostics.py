@@ -36,9 +36,8 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    domain_data = hass.data.get(DOMAIN, {})
-    runtime = domain_data.get(entry.entry_id, {})
-    coordinator = runtime.get("coordinator")
+    runtime = getattr(entry, "runtime_data", None)
+    coordinator = runtime.coordinator if runtime else None
     raw_data = coordinator.data if coordinator else {}
 
     # Redact sensitive data (VIN, location, identifiers, tokens, passwords)

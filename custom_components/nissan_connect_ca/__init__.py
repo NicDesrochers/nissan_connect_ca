@@ -1,5 +1,6 @@
 # custom_components/nissan_connect_ca/__init__.py
 import logging
+from dataclasses import dataclass
 from functools import partial
 from datetime import timedelta
 
@@ -30,6 +31,17 @@ from .crypto import KEY_FILE, _decrypt
 
 _LOGGER = logging.getLogger(__name__)
 
+
+@dataclass
+class NissanRuntimeData:
+    """Données d'exécution d'une entrée de configuration."""
+
+    api: NissanConnectCAAPI
+    coordinator: DataUpdateCoordinator
+
+
+type NissanConfigEntry = ConfigEntry[NissanRuntimeData]
+
 PLATFORMS = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
@@ -46,7 +58,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bool:
     """Set up a Nissan Connect account and vehicle telemetry."""
     domain_data = hass.data.setdefault(DOMAIN, {"accounts": {}})
     accounts = domain_data.setdefault("accounts", {})
@@ -97,13 +109,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Synchronize tokens across all active vehicle API clients for this user
         associated_entries = accounts.get(user, {}).get("entries", {entry.entry_id})
         for entry_id in list(associated_entries):
-            runtime = domain_data.get(entry_id)
-            if runtime and runtime.get("api"):
-                client = runtime["api"]
-                client.set_tokens(new_tokens)
-
             # Persist fresh tokens into Home Assistant config entries
             config_entry = hass.config_entries.async_get_entry(entry_id)
+            runtime = getattr(config_entry, "runtime_data", None)
+            if runtime is not None:
+                runtime.api.set_tokens(new_tokens)
             if config_entry:
                 hass.loop.call_soon_threadsafe(
                     partial(
@@ -195,10 +205,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator_ref[0] = coordinator
     await coordinator.async_config_entry_first_refresh()
 
-    domain_data[entry.entry_id] = {
-        "api": api,
-        "coordinator": coordinator,
-    }
+    entry.runtime_data = NissanRuntimeData(api=api, coordinator=coordinator)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -210,7 +217,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bool:
     """Unload the integration platforms."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
@@ -225,5 +232,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 except Exception:
                     pass
                 accounts.pop(username, None)
-        domain_data.pop(entry.entry_id, None)
     return unload_ok

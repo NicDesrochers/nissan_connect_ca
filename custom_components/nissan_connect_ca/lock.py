@@ -58,8 +58,8 @@ async def async_setup_entry(
     async_add_entities,
 ) -> None:
     """Set up Nissan vehicle lock."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    api = hass.data[DOMAIN][entry.entry_id]["api"]
+    coordinator = entry.runtime_data.coordinator
+    api = entry.runtime_data.api
     async_add_entities([NissanVehicleLock(coordinator, entry, api)])
 
 

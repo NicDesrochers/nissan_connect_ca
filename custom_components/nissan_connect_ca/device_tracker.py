@@ -19,7 +19,7 @@ async def async_setup_entry(
     async_add_entities,
 ) -> None:
     """Set up the Nissan vehicle tracker."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator = entry.runtime_data.coordinator
     async_add_entities([NissanVehicleTracker(coordinator, entry)])
 
 

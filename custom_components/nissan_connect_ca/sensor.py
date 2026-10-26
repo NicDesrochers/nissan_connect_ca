@@ -35,7 +35,7 @@ async def async_setup_entry(
     async_add_entities,
 ) -> None:
     """Set up Nissan vehicle sensors."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator = entry.runtime_data.coordinator
     vehicle = coordinator.data.get("vehicle", {})
     is_electric = vehicle.get("engineType") == "Electric" or bool(coordinator.data.get("battery"))
 

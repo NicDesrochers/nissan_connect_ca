@@ -23,7 +23,7 @@ async def async_setup_entry(
     async_add_entities,
 ) -> None:
     """Set up Nissan binary sensors."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator = entry.runtime_data.coordinator
     entities = [
         NissanDoorsLockedSensor(coordinator, entry),
         NissanVehicleWarningSensor(coordinator, entry),
