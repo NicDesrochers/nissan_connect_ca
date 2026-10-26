@@ -443,6 +443,7 @@ class NissanConnectCAAPI:
                 dynamic_data = self.get_dynamic_vehicle_data()
                 snapshot["battery"] = dynamic_data.get("batteryStatus") or {}
                 snapshot["climate"] = dynamic_data.get("climateStatus") or {}
+                snapshot["climateDefaults"] = dynamic_data.get("climateDefaults") or {}
             except Exception as err:
                 _LOGGER.warning("Could not fetch EV dynamic data via GraphQL: %s", err)
 
@@ -451,6 +452,7 @@ class NissanConnectCAAPI:
         _LOGGER.debug("Nissan location data: %s", snapshot["location"])
         _LOGGER.debug("Nissan battery data: %s", snapshot["battery"])
         _LOGGER.debug("Nissan climate data: %s", snapshot["climate"])
+        _LOGGER.debug("Nissan climateDefaults data: %s", snapshot.get("climateDefaults"))
         return snapshot
 
     @staticmethod
@@ -586,7 +588,9 @@ class NissanConnectCAAPI:
             "query VehicleDynamicData($vin: String!, $unit: DistanceUnit, $temperatureUnit: TemperatureUnitEnumType) { "
             "vehicle(vin: $vin) { __typename ... on BaseElectricVehicle { "
             "batteryStatus { __typename level isPluggedIn isCharging remainingChargeTime remainingMileage(unit: $unit) { unit value } } "
-            "climateStatus { __typename state temperature(unit: $temperatureUnit) { value unit } } } } }"
+            "climateStatus { __typename state temperature(unit: $temperatureUnit) { value unit } } } "
+            "... on ElectricVehicle { climateDefaults { __typename climate(unit: $temperatureUnit) { value unit } } } "
+            "... on BaseAVK2Vehicle { climateDefaults { __typename climate(unit: $temperatureUnit) { value unit } } } } }"
         )
         data = self._post_graphql(
             "VehicleDynamicData",
@@ -634,6 +638,34 @@ class NissanConnectCAAPI:
         )
         return data.get("vehicle", {}).get("climateStatus", {})
 
+    def set_climate_defaults(self, temperature_value, unit="CELSIUS"):
+        """Enregistre la consigne de température par défaut dans le cloud Nissan."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation SetClimateDefaults($vin: String!, $climate: StartClimateInput!, $parameters: SetClimateParametersInput) { "
+            "setClimateDefaults(vin: $vin, climate: $climate, parameters: $parameters) { "
+            "__typename ... on SetClimateDefaultsResponse { success } "
+            "... on SetClimateDefaultsError { message } } }"
+        )
+        variables = {
+            "vin": vin,
+            "climate": {
+                "temperatureValue": float(temperature_value),
+                "unit": unit,
+            },
+            "parameters": {
+                "steeringWheelHeaterState": "OFF",
+                "defrostAndDeicerState": "OFF",
+                "seatsClimate": {
+                    "frontDriverState": "OFF",
+                    "frontPassengerState": "OFF",
+                },
+            },
+        }
+        return self._post_graphql("SetClimateDefaults", query, variables)
+
     def start_climate(self, temperature_value=21.0, unit="CELSIUS"):
         """Démarre la climatisation à distance (habitacle)."""
         vin = self.vin or self.vehicle_id
@@ -653,7 +685,6 @@ class NissanConnectCAAPI:
                 "temperatureValue": float(temperature_value),
                 "unit": unit,
             },
-            "setAsDefault": True,
         }
         data = self._post_graphql("StartClimate", query, variables)
         start_result = data.get("startClimate") or {}

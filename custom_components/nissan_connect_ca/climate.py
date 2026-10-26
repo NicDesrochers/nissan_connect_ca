@@ -12,7 +12,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -83,7 +83,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         super().__init__(coordinator)
         self._api = api
         self._attr_unique_id = f"{entry.entry_id}_climate"
-        self._target_temperature = DEFAULT_TARGET_TEMPERATURE
+        self._target_temperature: float | None = None
         vehicle = coordinator.data["vehicle"]
         model = vehicle.get("model")
         year = vehicle.get("year")
@@ -95,22 +95,41 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    def _get_cloud_target_temperature(self) -> float | None:
+        """Extract default target temperature from Nissan cloud if available."""
+        defaults = (self.coordinator.data or {}).get("climateDefaults", {}).get("climate", {})
+        val = defaults.get("value")
+        if val is not None:
+            try:
+                temp = float(val)
+                if self._attr_min_temp <= temp <= self._attr_max_temp:
+                    return temp
+            except (ValueError, TypeError):
+                pass
+        return None
+
     async def async_added_to_hass(self) -> None:
-        """Restore last state upon addition."""
+        """Restore last state upon addition or read cloud defaults."""
         await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is not None:
+        cloud_target = self._get_cloud_target_temperature()
+        if cloud_target is not None:
+            self._target_temperature = cloud_target
+        elif (last_state := await self.async_get_last_state()) is not None:
             if last_state.attributes.get(ATTR_TEMPERATURE) is not None:
                 try:
                     restored_temp = float(last_state.attributes[ATTR_TEMPERATURE])
                     if self._attr_min_temp <= restored_temp <= self._attr_max_temp:
                         self._target_temperature = restored_temp
-                        _LOGGER.debug(
-                            "Restored target temperature %s °C for %s",
-                            self._target_temperature,
-                            self.entity_id,
-                        )
                 except (ValueError, TypeError):
                     pass
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        cloud_target = self._get_cloud_target_temperature()
+        if cloud_target is not None:
+            self._target_temperature = cloud_target
+        super()._handle_coordinator_update()
 
     @property
     def current_temperature(self) -> float | None:
@@ -124,7 +143,12 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
-        return self._target_temperature
+        if self._target_temperature is not None:
+            return self._target_temperature
+        cloud_target = self._get_cloud_target_temperature()
+        if cloud_target is not None:
+            return cloud_target
+        return DEFAULT_TARGET_TEMPERATURE
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -148,7 +172,23 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
-        self._target_temperature = float(round(float(temp)))
+        target = float(round(float(temp)))
+        if self._attr_min_temp <= target <= self._attr_max_temp:
+            self._target_temperature = target
+
+        # Save to Nissan cloud as vehicle default setting
+        try:
+            await self.hass.async_add_executor_job(
+                self._api.set_climate_defaults, self._target_temperature, "CELSIUS"
+            )
+            if self.coordinator.data:
+                self.coordinator.data.setdefault("climateDefaults", {})["climate"] = {
+                    "value": self._target_temperature,
+                    "unit": "CELSIUS",
+                }
+        except Exception as err:
+            _LOGGER.debug("Could not update Nissan cloud climate defaults: %s", err)
+
         if self.hvac_mode != HVACMode.OFF:
             await self.async_set_hvac_mode(HVACMode.HEAT_COOL)
         else:
@@ -167,10 +207,11 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             except Exception as err:
                 raise HomeAssistantError(f"Failed to stop climate: {err}") from err
         else:
-            _LOGGER.debug("Starting vehicle climate at %s °C", self._target_temperature)
+            target = self.target_temperature or DEFAULT_TARGET_TEMPERATURE
+            _LOGGER.debug("Starting vehicle climate at %s °C", target)
             try:
                 req_id = await self.hass.async_add_executor_job(
-                    self._api.start_climate, self._target_temperature, "CELSIUS"
+                    self._api.start_climate, target, "CELSIUS"
                 )
                 if req_id:
                     self.hass.async_create_task(
