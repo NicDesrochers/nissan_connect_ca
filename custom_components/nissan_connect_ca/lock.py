@@ -11,7 +11,10 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import NissanConnectAuthenticationError, NissanConnectCommandError
+from .command_guard import guard_command
 from .const import DOMAIN
+
+PARALLEL_UPDATES = 1
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,6 +93,7 @@ class NissanVehicleLock(CoordinatorEntity, LockEntity):
             return None
         return status == "locked"
 
+    @guard_command()
     async def async_lock(self, **kwargs) -> None:
         """Lock the doors."""
         _LOGGER.debug("Locking vehicle doors")
@@ -107,6 +111,7 @@ class NissanVehicleLock(CoordinatorEntity, LockEntity):
         except Exception as err:
             raise HomeAssistantError("Nissan door lock request failed") from err
 
+    @guard_command()
     async def async_unlock(self, **kwargs) -> None:
         """Unlock the doors."""
         _LOGGER.debug("Unlocking vehicle doors")

@@ -19,7 +19,10 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import NissanConnectAuthenticationError, NissanConnectCommandError
+from .command_guard import guard_command
 from .const import DOMAIN
+
+PARALLEL_UPDATES = 1
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -194,6 +197,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         else:
             self.async_write_ha_state()
 
+    @guard_command(cooldown=0)
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         if hvac_mode == HVACMode.OFF:

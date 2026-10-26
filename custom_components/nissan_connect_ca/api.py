@@ -74,6 +74,16 @@ class NissanConnectCAAPI:
         self._oauth_id_token = self._tokens.get("oauth_id_token")
         self._token_expiration_time = self._tokens.get(CONF_EXPIRES_AT, 0)
 
+    def set_tokens(self, tokens):
+        """Met à jour les jetons de ce client à partir d'un dictionnaire."""
+        self._tokens.update(tokens)
+        self._access_token = tokens.get(CONF_TOKEN)
+        self._id_token = tokens.get(CONF_ID_TOKEN)
+        self._refresh_token = tokens.get(CONF_REFRESH_TOKEN)
+        self._oauth_access_token = tokens.get("oauth_access_token")
+        self._oauth_id_token = tokens.get("oauth_id_token")
+        self._token_expiration_time = tokens.get(CONF_EXPIRES_AT, 0)
+
     @staticmethod
     def _decode_token_claims(token):
         """Decode a JWT payload without logging or retaining its contents."""

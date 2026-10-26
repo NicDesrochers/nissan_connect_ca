@@ -12,7 +12,10 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import NissanConnectAuthenticationError, NissanConnectCommandError
+from .command_guard import guard_command
 from .const import DOMAIN
+
+PARALLEL_UPDATES = 1
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -243,6 +246,7 @@ class NissanRemoteStartButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request a remote start and refresh the vehicle state."""
         _LOGGER.debug("Remote start button pressed")
@@ -286,6 +290,7 @@ class NissanUnlockDoorsButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request door unlock and refresh the vehicle state."""
         _LOGGER.debug("Unlock doors button pressed")
@@ -327,6 +332,7 @@ class NissanLockDoorsButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request door lock and refresh the vehicle state."""
         _LOGGER.debug("Lock doors button pressed")
@@ -369,6 +375,7 @@ class NissanStartClimateButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request remote climate start."""
         _LOGGER.debug("Start climate button pressed")
@@ -428,6 +435,7 @@ class NissanStopClimateButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request remote climate stop."""
         _LOGGER.debug("Stop climate button pressed")
@@ -470,6 +478,7 @@ class NissanStartChargeButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request remote charge start."""
         _LOGGER.debug("Start charge button pressed")
@@ -512,6 +521,7 @@ class NissanStopChargeButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request remote charge stop."""
         _LOGGER.debug("Stop charge button pressed")
@@ -554,6 +564,7 @@ class NissanFlashLightsButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request remote flash lights."""
         _LOGGER.debug("Flash lights button pressed")
@@ -596,6 +607,7 @@ class NissanFlashLightsHornButton(CoordinatorEntity, ButtonEntity):
             model_id=vehicle.get("modelCode"),
         )
 
+    @guard_command()
     async def async_press(self) -> None:
         """Request remote honk horn and flash lights."""
         _LOGGER.debug("Honk horn and flash lights button pressed")

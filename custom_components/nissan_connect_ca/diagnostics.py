@@ -4,9 +4,32 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+
+TO_REDACT = {
+    "vin",
+    "vehicleId",
+    "vehicle_id",
+    "id",
+    "latitude",
+    "longitude",
+    "lat",
+    "lon",
+    "address",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "oauth_access_token",
+    "oauth_id_token",
+    "password",
+    "username",
+    "user_id",
+    "licensePlate",
+    "nickname",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -18,8 +41,8 @@ async def async_get_config_entry_diagnostics(
     coordinator = runtime.get("coordinator")
     raw_data = coordinator.data if coordinator else {}
 
-    # Redact sensitive data (VIN partially, passwords, tokens)
-    clean_data = dict(raw_data) if isinstance(raw_data, dict) else {}
+    # Redact sensitive data (VIN, location, identifiers, tokens, passwords)
+    clean_data = async_redact_data(raw_data if isinstance(raw_data, dict) else {}, TO_REDACT)
 
     vin = entry.data.get("vin") or ""
     masked_vin = vin[:8] + "******" if len(vin) >= 8 else "***"
@@ -27,7 +50,7 @@ async def async_get_config_entry_diagnostics(
     return {
         "title": entry.title,
         "vin": masked_vin,
-        "vehicle_id": entry.data.get("vehicle_id"),
+        "vehicle_id": "**REDACTED**",
         "options": dict(entry.options),
         "data": clean_data,
     }

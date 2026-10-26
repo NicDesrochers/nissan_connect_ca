@@ -100,13 +100,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             runtime = domain_data.get(entry_id)
             if runtime and runtime.get("api"):
                 client = runtime["api"]
-                client._tokens.update(new_tokens)
-                client._access_token = new_tokens.get(CONF_TOKEN)
-                client._id_token = new_tokens.get(CONF_ID_TOKEN)
-                client._refresh_token = new_tokens.get(CONF_REFRESH_TOKEN)
-                client._oauth_access_token = new_tokens.get("oauth_access_token")
-                client._oauth_id_token = new_tokens.get("oauth_id_token")
-                client._token_expiration_time = new_tokens.get(CONF_EXPIRES_AT, 0)
+                client.set_tokens(new_tokens)
 
             # Persist fresh tokens into Home Assistant config entries
             config_entry = hass.config_entries.async_get_entry(entry_id)
