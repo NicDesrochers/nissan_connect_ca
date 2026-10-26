@@ -26,9 +26,9 @@ async def async_setup_entry(
 class NissanVehicleTracker(CoordinatorEntity, TrackerEntity):
     """Track the vehicle's last reported location."""
 
-    _attr_has_entity_name = True
-    _attr_translation_key = "vehicle_location"
+    _attr_has_entity_name = False
     _attr_source_type = SourceType.GPS
+    _attr_icon = "mdi:car-electric"
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         """Initialize the vehicle tracker."""
@@ -37,6 +37,7 @@ class NissanVehicleTracker(CoordinatorEntity, TrackerEntity):
         vehicle = coordinator.data["vehicle"]
         model = vehicle.get("model")
         year = vehicle.get("year")
+        self._attr_name = model or entry.title
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, str(entry.data["vehicle_id"]))},
             name=entry.title,
