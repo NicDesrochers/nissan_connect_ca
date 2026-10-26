@@ -592,7 +592,7 @@ class NissanConnectCAAPI:
             url,
             variables,
         )
-        used_token = auth_token
+        used_token = self._oauth_access_token or self._access_token
         response = self._session.post(url, headers=headers, json=payload, timeout=25)
         if response.status_code == 401 and self._relogin(force=True, rejected_token=used_token):
             headers = self.get_graphql_headers()

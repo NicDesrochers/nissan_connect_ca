@@ -39,6 +39,19 @@ def test_start_climate_does_not_set_default():
     assert "setAsDefault" not in post.call_args.args[2]
 
 
+def test_post_graphql_success():
+    from unittest.mock import MagicMock
+    api = _api()
+    api.set_tokens({"access_token": "token123", "expires_at": 9999999999})
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": {"vehicle": {"batteryStatus": {"level": 80}}}}
+    with patch.object(api._session, "post", return_value=mock_resp):
+        res = api._post_graphql("VehicleDynamicData", "query { test }", {"vin": "VIN123"})
+        assert res["vehicle"]["batteryStatus"]["level"] == 80
+
+
+
 def test_concurrent_relogin_deduplicates():
     import threading, time
 
