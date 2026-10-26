@@ -2,7 +2,12 @@
 
 A modern, standalone Home Assistant integration for **Nissan Connect Canada** (`MyNISSAN Canada` / `login.nissan.ca`).
 
-Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2 Single Sign-On, and Nissan Hades Cloud GraphQL APIs. Tested and confirmed on both **Nissan ARIYA** (2023–2026) and **Nissan LEAF** (all trims including Leaf SL), as well as internal combustion Nissan vehicles.
+Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2 Single Sign-On, and Nissan Hades Cloud GraphQL APIs. Tested and confirmed on:
+* **Nissan ARIYA** (2023–2026)
+* **Nissan LEAF** (2026+, tested on Leaf SL)
+* Modern internal combustion Nissan vehicles supported by the MyNISSAN Canada app
+
+> **Vehicle Compatibility Note:** This integration requires the modern **MyNISSAN Canada** cloud platform (`login.nissan.ca`). Older generation LEAF models (e.g. 2011–2017 using legacy Carwings / 2G-3G NissanConnect EV portals) use an older telematics backend and are not compatible with this integration.
 
 ---
 
