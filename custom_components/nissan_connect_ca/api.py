@@ -327,12 +327,13 @@ class NissanConnectCAAPI:
         """Register a callable returning fresh tokens, used when the token expires."""
         self._relogin_handler = handler
 
-    def _relogin(self):
+    def _relogin(self, force: bool = False):
         """Renew tokens through the handler; return True on success."""
         if not self._relogin_handler:
             return False
+        initial_token = self._access_token
         with self._relogin_lock:
-            if not self._is_token_expired() and self._access_token:
+            if not force and self._access_token != initial_token and not self._is_token_expired():
                 return True
             try:
                 self._relogin_handler()
@@ -369,7 +370,7 @@ class NissanConnectCAAPI:
             raise NissanConnectAuthenticationError("ID token is missing")
 
         response = self._session.get(url, headers=headers, timeout=15)
-        if response.status_code == 401 and self._relogin():
+        if response.status_code == 401 and self._relogin(force=True):
             headers = self.get_headers()
             response = self._session.get(url, headers=headers, timeout=15)
         _LOGGER.debug(
@@ -562,7 +563,7 @@ class NissanConnectCAAPI:
             variables,
         )
         response = self._session.post(url, headers=headers, json=payload, timeout=25)
-        if response.status_code == 401 and self._relogin():
+        if response.status_code == 401 and self._relogin(force=True):
             headers = self.get_graphql_headers()
             response = self._session.post(url, headers=headers, json=payload, timeout=25)
 

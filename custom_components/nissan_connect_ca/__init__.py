@@ -81,6 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
         parent_api = shared_account["api"]
         api = parent_api.clone_for_vehicle(vehicle_id=vehicle_id, vin=vin)
         shared_account["entries"].add(entry.entry_id)
+        shared_account.setdefault("clients", set()).add(api)
     else:
         _LOGGER.debug("Initializing Nissan API session for account %s", username)
         api = NissanConnectCAAPI(
@@ -93,6 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
         if username:
             accounts[username] = {
                 "api": api,
+                "clients": {api},
                 "entries": {entry.entry_id},
             }
 
@@ -111,13 +113,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
         new_tokens = target_api.reauthenticate(user, password)
 
         # Synchronize tokens across all active vehicle API clients for this user
+        for client in list(accounts.get(user, {}).get("clients", {api})):
+            client.set_tokens(new_tokens)
+
         associated_entries = accounts.get(user, {}).get("entries", {entry.entry_id})
         for entry_id in list(associated_entries):
             # Persist fresh tokens into Home Assistant config entries
             config_entry = hass.config_entries.async_get_entry(entry_id)
-            runtime = getattr(config_entry, "runtime_data", None)
-            if runtime is not None:
-                runtime.api.set_tokens(new_tokens)
             if config_entry:
                 hass.loop.call_soon_threadsafe(
                     partial(
@@ -230,6 +232,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> b
         accounts = domain_data.get("accounts", {})
         if username and username in accounts:
             accounts[username]["entries"].discard(entry.entry_id)
+            runtime = getattr(entry, "runtime_data", None)
+            if runtime and runtime.api in accounts[username].get("clients", set()):
+                accounts[username]["clients"].discard(runtime.api)
             if not accounts[username]["entries"]:
                 try:
                     accounts[username]["api"].close()
