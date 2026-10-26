@@ -1,5 +1,6 @@
 # custom_components/nissan_connect_ca/api.py
 import base64
+import functools
 import hashlib
 import json
 import logging
@@ -50,10 +51,21 @@ class NissanConnectCommandError(Exception):
     """Raised when Nissan rejects a vehicle command."""
 
 
+def synchronized_account(func):
+    """Ensure operations on this Nissan account are strictly serialized in queue."""
+
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        with self._account_lock:
+            return func(self, *args, **kwargs)
+
+    return wrapper
+
+
 class NissanConnectCAAPI:
     """API Client pour interagir avec NissanConnect CA."""
 
-    def __init__(self, username, password, tokens=None, vehicle_id=None, vin=None):
+    def __init__(self, username, password, tokens=None, vehicle_id=None, vin=None, account_lock=None):
         """Initialise l'API Client."""
         self._username = username
         self._password = password
@@ -64,6 +76,7 @@ class NissanConnectCAAPI:
         self._auth_stage = "idle"
         self._relogin_handler = None
         self._relogin_lock = threading.Lock()
+        self._account_lock = account_lock if account_lock is not None else threading.RLock()
         self._callback_diagnostic = "not-received"
 
         # Initialisation des jetons
@@ -104,6 +117,7 @@ class NissanConnectCAAPI:
         """Return callback metadata without exposing query parameter values."""
         return self._callback_diagnostic
 
+    @synchronized_account
     def authenticate(self):
         """Log in with Nissan credentials and exchange PKCE and OEM tokens."""
         if not self._username or not self._password:
@@ -280,6 +294,7 @@ class NissanConnectCAAPI:
             "oauth_id_token": self._oauth_id_token,
         }
 
+    @synchronized_account
     def reauthenticate(self, username, password):
         """Log in again with stored credentials, then forget them."""
         self._username = username
@@ -304,6 +319,7 @@ class NissanConnectCAAPI:
     # =======================================================
     # !!! CONTOURNEMENT CRITIQUE DU RAFRAÎCHISSEMENT !!!
     # =======================================================
+    @synchronized_account
     def _refresh_tokens(self):
         """
         Désactive la tentative de rafraîchissement standard due à l'erreur 'invalid_grant'.
@@ -327,11 +343,13 @@ class NissanConnectCAAPI:
         """Register a callable returning fresh tokens, used when the token expires."""
         self._relogin_handler = handler
 
-    def _relogin(self, force: bool = False):
+    def _relogin(self, force: bool = False, rejected_token: str = None):
         """Renew tokens through the handler; return True on success."""
         if not self._relogin_handler:
             return False
-        initial_token = self._access_token
+        if not force and not self._is_token_expired() and self._access_token:
+            return True
+        initial_token = rejected_token or self._access_token
         with self._relogin_lock:
             # Si un autre véhicule a déjà renouvelé le token pendant qu'on attendait le verrou,
             # on réutilise directement le nouveau token sans faire de double login auprès de Nissan.
@@ -366,14 +384,16 @@ class NissanConnectCAAPI:
             headers["id_token"] = self._id_token
         return headers
 
+    @synchronized_account
     def _get_json(self, url, *, require_id_token=False):
         """Perform an authenticated Nissan API request."""
         headers = self.get_headers()
         if require_id_token and not self._id_token:
             raise NissanConnectAuthenticationError("ID token is missing")
 
+        used_token = self._access_token
         response = self._session.get(url, headers=headers, timeout=15)
-        if response.status_code == 401 and self._relogin(force=True):
+        if response.status_code == 401 and self._relogin(force=True, rejected_token=used_token):
             headers = self.get_headers()
             response = self._session.get(url, headers=headers, timeout=15)
         _LOGGER.debug(
@@ -392,6 +412,7 @@ class NissanConnectCAAPI:
         """Return the URL path only, without host or query string."""
         return urlparse(url).path
 
+    @synchronized_account
     def get_vehicles(self, user_id):
         """Retrieve the account's vehicles from its observed profile endpoint."""
         self._auth_stage = "vehicle profile"
@@ -416,6 +437,7 @@ class NissanConnectCAAPI:
             raise ValueError("No vehicles found in the Nissan account profile")
         return vehicles
 
+    @synchronized_account
     def get_vehicle_snapshot(self):
         """Retrieve vehicle metadata and read-only telematics data."""
         if not self.vehicle_id:
@@ -493,6 +515,7 @@ class NissanConnectCAAPI:
                 f"{service} returned unexpected HTTP {response.status_code}"
             )
 
+    @synchronized_account
     def start_engine(self, engine_id):
         """Request a remote engine start for the configured vehicle."""
         if not self.vehicle_id:
@@ -505,14 +528,17 @@ class NissanConnectCAAPI:
         )
         self._raise_for_command_response(response, "Nissan engine service")
 
+    @synchronized_account
     def unlock_doors(self):
         """Request an unlock of all doors using Nissan's RTS endpoint."""
         self._set_door_lock_state("UNLOCK")
 
+    @synchronized_account
     def lock_doors(self):
         """Request a lock of all doors using Nissan's RTS endpoint."""
         self._set_door_lock_state("LOCK")
 
+    @synchronized_account
     def _set_door_lock_state(self, state):
         """Send Nissan's all-door lock or unlock request."""
         if not self.vehicle_id:
@@ -550,6 +576,7 @@ class NissanConnectCAAPI:
             headers["id-token"] = id_token
         return headers
 
+    @synchronized_account
     def _post_graphql(self, operation_name, query, variables):
         """Exécute une requête GraphQL vers l'API Nissan Cloud."""
         url = GRAPHQL_URL
@@ -565,8 +592,9 @@ class NissanConnectCAAPI:
             url,
             variables,
         )
+        used_token = auth_token
         response = self._session.post(url, headers=headers, json=payload, timeout=25)
-        if response.status_code == 401 and self._relogin(force=True):
+        if response.status_code == 401 and self._relogin(force=True, rejected_token=used_token):
             headers = self.get_graphql_headers()
             response = self._session.post(url, headers=headers, json=payload, timeout=25)
 
@@ -593,6 +621,7 @@ class NissanConnectCAAPI:
 
         return result.get("data", {})
 
+    @synchronized_account
     def get_dynamic_vehicle_data(self):
         """Récupère l'état dynamique (batterie, autonomie, climatisation) via GraphQL."""
         vin = self.vin or self.vehicle_id
@@ -621,6 +650,7 @@ class NissanConnectCAAPI:
             tokens=self._tokens,
             vehicle_id=vehicle_id,
             vin=vin,
+            account_lock=self._account_lock,
         )
         client._session = self._session
         client._oauth_access_token = self._oauth_access_token
@@ -631,8 +661,10 @@ class NissanConnectCAAPI:
         client._token_expiration_time = self._token_expiration_time
         client._relogin_handler = self._relogin_handler
         client._relogin_lock = self._relogin_lock
+        client._account_lock = self._account_lock
         return client
 
+    @synchronized_account
     def get_climate_status(self):
         """Récupère l'état actuel de la climatisation (véhicule électrique)."""
         vin = self.vin or self.vehicle_id
@@ -652,6 +684,7 @@ class NissanConnectCAAPI:
         )
         return data.get("vehicle", {}).get("climateStatus", {})
 
+    @synchronized_account
     def set_climate_defaults(self, temperature_value, unit="CELSIUS"):
         """Enregistre la consigne de température par défaut dans le cloud Nissan."""
         vin = self.vin or self.vehicle_id
@@ -680,6 +713,7 @@ class NissanConnectCAAPI:
         }
         return self._post_graphql("SetClimateDefaults", query, variables)
 
+    @synchronized_account
     def start_climate(self, temperature_value=21.0, unit="CELSIUS"):
         """Démarre la climatisation à distance (habitacle)."""
         vin = self.vin or self.vehicle_id
@@ -706,6 +740,7 @@ class NissanConnectCAAPI:
         _LOGGER.debug("StartClimate résultat: %s, serviceRequestId: %s", start_result, service_request_id)
         return service_request_id
 
+    @synchronized_account
     def stop_climate(self):
         """Arrête la climatisation à distance."""
         vin = self.vin or self.vehicle_id
@@ -722,6 +757,7 @@ class NissanConnectCAAPI:
         _LOGGER.debug("StopClimate résultat: %s, serviceRequestId: %s", stop_result, service_request_id)
         return service_request_id
 
+    @synchronized_account
     def check_climate_request(self, service_request_id):
         """Vérifie le statut d'une requête de climatisation."""
         vin = self.vin or self.vehicle_id
@@ -739,6 +775,7 @@ class NissanConnectCAAPI:
         data = self._post_graphql("CheckRemoteClimateRequest", query, variables)
         return data.get("checkRemoteClimateRequest", {})
 
+    @synchronized_account
     def start_charge(self):
         """Démarre la recharge du véhicule électrique à distance."""
         vin = self.vin or self.vehicle_id
@@ -755,6 +792,7 @@ class NissanConnectCAAPI:
         _LOGGER.debug("StartCharge résultat: %s, serviceRequestId: %s", result, service_request_id)
         return service_request_id
 
+    @synchronized_account
     def stop_charge(self):
         """Arrête la recharge du véhicule électrique à distance."""
         vin = self.vin or self.vehicle_id
@@ -771,6 +809,7 @@ class NissanConnectCAAPI:
         _LOGGER.debug("StopCharge résultat: %s, serviceRequestId: %s", result, service_request_id)
         return service_request_id
 
+    @synchronized_account
     def check_charge_request(self, service_request_id):
         """Vérifie le statut d'une requête de recharge."""
         vin = self.vin or self.vehicle_id
@@ -788,6 +827,7 @@ class NissanConnectCAAPI:
         data = self._post_graphql("CheckChargeServiceRequest", query, variables)
         return data.get("checkChargeServiceRequest", {})
 
+    @synchronized_account
     def flash_lights(self):
         """Fait clignoter les phares du véhicule à distance."""
         vin = self.vin or self.vehicle_id
@@ -804,6 +844,7 @@ class NissanConnectCAAPI:
         _LOGGER.debug("FlashLights résultat: %s, serviceRequestId: %s", result, service_request_id)
         return service_request_id
 
+    @synchronized_account
     def flash_lights_horn(self):
         """Actionne les phares et le klaxon du véhicule à distance."""
         vin = self.vin or self.vehicle_id
@@ -820,6 +861,7 @@ class NissanConnectCAAPI:
         _LOGGER.debug("FlashLightsHorn résultat: %s, serviceRequestId: %s", result, service_request_id)
         return service_request_id
 
+    @synchronized_account
     def check_horn_light_request(self, service_request_id):
         """Vérifie le statut d'une requête de phares/klaxon."""
         vin = self.vin or self.vehicle_id

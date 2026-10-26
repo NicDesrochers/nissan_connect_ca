@@ -72,3 +72,43 @@ def test_concurrent_relogin_deduplicates():
     assert login_calls == 1
     assert parent._access_token == "fresh_token"
     assert child._access_token == "fresh_token"
+
+
+def test_synchronized_account_queues_operations():
+    import threading, time
+
+    parent = _api()
+    child = parent.clone_for_vehicle("vid2", vin="VIN456")
+
+    execution_order = []
+    active_operations = 0
+    max_concurrent = 0
+    lock = threading.Lock()
+
+    def mock_post(operation_name, query, variables=None, retry_auth=True):
+        nonlocal active_operations, max_concurrent
+        with lock:
+            active_operations += 1
+            if active_operations > max_concurrent:
+                max_concurrent = active_operations
+            execution_order.append(f"start_{variables.get('vin')}")
+        time.sleep(0.05)
+        with lock:
+            active_operations -= 1
+            execution_order.append(f"end_{variables.get('vin')}")
+        return {"startClimate": {"serviceRequestId": "req-123"}}
+
+    with patch.object(parent, "_post_graphql", side_effect=mock_post), \
+         patch.object(child, "_post_graphql", side_effect=mock_post):
+        t1 = threading.Thread(target=parent.start_climate, args=(21.0,))
+        t2 = threading.Thread(target=child.start_climate, args=(22.0,))
+
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+    # Grâce à @synchronized_account et au verrou partagé, jamais plus de 1 opération concurrente
+    assert max_concurrent == 1
+    assert len(execution_order) == 4
+
