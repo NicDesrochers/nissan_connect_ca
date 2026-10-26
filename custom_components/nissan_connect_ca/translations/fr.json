@@ -143,6 +143,18 @@
       },
       "stop_climate": {
         "name": "Arrêter la climatisation"
+      },
+      "start_charge": {
+        "name": "Démarrer la recharge"
+      },
+      "stop_charge": {
+        "name": "Arrêter la recharge"
+      },
+      "flash_lights": {
+        "name": "Faire clignoter les phares"
+      },
+      "flash_lights_horn": {
+        "name": "Avertisseur sonore et phares"
       }
     }
   }

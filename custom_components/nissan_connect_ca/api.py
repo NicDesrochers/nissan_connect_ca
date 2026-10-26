@@ -693,3 +693,102 @@ class NissanConnectCAAPI:
         data = self._post_graphql("CheckRemoteClimateRequest", query, variables)
         return data.get("checkRemoteClimateRequest", {})
 
+    def start_charge(self):
+        """Démarre la recharge du véhicule électrique à distance."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation StartCharge($vin: String!) { "
+            "startCharge(vin: $vin) { __typename serviceRequestId } }"
+        )
+        variables = {"vin": vin}
+        data = self._post_graphql("StartCharge", query, variables)
+        result = data.get("startCharge") or {}
+        service_request_id = result.get("serviceRequestId")
+        _LOGGER.debug("StartCharge résultat: %s, serviceRequestId: %s", result, service_request_id)
+        return service_request_id
+
+    def stop_charge(self):
+        """Arrête la recharge du véhicule électrique à distance."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation StopCharge($vin: String!) { "
+            "stopCharge(vin: $vin) { __typename serviceRequestId } }"
+        )
+        variables = {"vin": vin}
+        data = self._post_graphql("StopCharge", query, variables)
+        result = data.get("stopCharge") or {}
+        service_request_id = result.get("serviceRequestId")
+        _LOGGER.debug("StopCharge résultat: %s, serviceRequestId: %s", result, service_request_id)
+        return service_request_id
+
+    def check_charge_request(self, service_request_id):
+        """Vérifie le statut d'une requête de recharge."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation CheckChargeServiceRequest($vin: String!, $serviceRequestId: String!) { "
+            "checkChargeServiceRequest(vin: $vin, serviceRequestId: $serviceRequestId) { "
+            "__typename status } }"
+        )
+        variables = {
+            "vin": vin,
+            "serviceRequestId": service_request_id,
+        }
+        data = self._post_graphql("CheckChargeServiceRequest", query, variables)
+        return data.get("checkChargeServiceRequest", {})
+
+    def flash_lights(self):
+        """Fait clignoter les phares du véhicule à distance."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation FlashLights($vin: String!) { "
+            "flashLights(vin: $vin) { __typename serviceRequestId } }"
+        )
+        variables = {"vin": vin}
+        data = self._post_graphql("FlashLights", query, variables)
+        result = data.get("flashLights") or {}
+        service_request_id = result.get("serviceRequestId")
+        _LOGGER.debug("FlashLights résultat: %s, serviceRequestId: %s", result, service_request_id)
+        return service_request_id
+
+    def flash_lights_horn(self):
+        """Actionne les phares et le klaxon du véhicule à distance."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation FlashLightsHorn($vin: String!) { "
+            "flashLightsHorn(vin: $vin) { __typename serviceRequestId } }"
+        )
+        variables = {"vin": vin}
+        data = self._post_graphql("FlashLightsHorn", query, variables)
+        result = data.get("flashLightsHorn") or {}
+        service_request_id = result.get("serviceRequestId")
+        _LOGGER.debug("FlashLightsHorn résultat: %s, serviceRequestId: %s", result, service_request_id)
+        return service_request_id
+
+    def check_horn_light_request(self, service_request_id):
+        """Vérifie le statut d'une requête de phares/klaxon."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation CheckHornLightServiceRequest($vin: String!, $serviceRequestId: String!) { "
+            "checkHornLightServiceRequest(vin: $vin, serviceRequestId: $serviceRequestId) { "
+            "__typename status } }"
+        )
+        variables = {
+            "vin": vin,
+            "serviceRequestId": service_request_id,
+        }
+        data = self._post_graphql("CheckHornLightServiceRequest", query, variables)
+        return data.get("checkHornLightServiceRequest", {})
+
+

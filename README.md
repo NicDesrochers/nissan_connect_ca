@@ -16,6 +16,11 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
 * **Real Door Lock Entity (`lock`)**:
   * Standard Home Assistant lock entity reflecting door lock state in real-time.
   * Lock and unlock doors with a single stateful tile.
+* **Remote Action Buttons (`button`)**:
+  * **Start / Stop Charging** (`button.*_start_charging` / `button.*_stop_charging`): Remotely trigger or stop EV charging on demand (ideal for solar surplus or off-peak electricity automations).
+  * **Locate Vehicle & Flash Lights** (`button.*_flash_lights`): Flash vehicle exterior lights to easily locate the car in dark parking areas.
+  * **Honk Horn & Flash Lights** (`button.*_honk_horn_and_flash_lights`): Trigger both horn and lights for quick vehicle location.
+  * **Start / Stop Climate** (`button.*_start_climate` / `button.*_stop_climate`): Quick-action buttons for pre-conditioning cabin temperature.
 * **Complete Electric Vehicle (EV) Metrics**:
   * **Battery Level** (`sensor.*_battery_level` in %).
   * **Remaining Autonomy / Range** (`sensor.*_remaining_range` in km with accurate metric conversion).

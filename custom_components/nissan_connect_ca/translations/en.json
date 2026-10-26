@@ -143,6 +143,18 @@
       },
       "stop_climate": {
         "name": "Stop climate"
+      },
+      "start_charge": {
+        "name": "Start charging"
+      },
+      "stop_charge": {
+        "name": "Stop charging"
+      },
+      "flash_lights": {
+        "name": "Flash lights"
+      },
+      "flash_lights_horn": {
+        "name": "Honk horn and flash lights"
       }
     }
   }

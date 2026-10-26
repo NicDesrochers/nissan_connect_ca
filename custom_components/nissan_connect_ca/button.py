@@ -22,6 +22,10 @@ ENGINE_POLL_ATTEMPTS = 16
 ENGINE_POLL_DELAY = 15
 CLIMATE_POLL_ATTEMPTS = 12
 CLIMATE_POLL_DELAY = 10
+CHARGE_POLL_ATTEMPTS = 10
+CHARGE_POLL_DELAY = 10
+HORN_LIGHT_POLL_ATTEMPTS = 6
+HORN_LIGHT_POLL_DELAY = 5
 
 
 def _overall_lock_status(coordinator):
@@ -82,6 +86,45 @@ async def _async_poll_climate_request(hass: HomeAssistant, api, service_request_
             _LOGGER.warning("Erreur lors du suivi de la requête climatisation %s: %s", service_request_id, err)
 
 
+async def _async_poll_charge_request(hass: HomeAssistant, api, service_request_id: str, coordinator) -> None:
+    """Refresh a few times until the charge request completes."""
+    for attempt in range(1, CHARGE_POLL_ATTEMPTS + 1):
+        await asyncio.sleep(CHARGE_POLL_DELAY)
+        try:
+            status_data = await hass.async_add_executor_job(
+                api.check_charge_request, service_request_id
+            )
+            status = status_data.get("status")
+            _LOGGER.debug(
+                "Charge poll %s/%s: status=%r",
+                attempt, CHARGE_POLL_ATTEMPTS, status,
+            )
+            if status and status not in ("PENDING", "IN_PROGRESS"):
+                await coordinator.async_refresh()
+                return
+        except Exception as err:
+            _LOGGER.warning("Erreur lors du suivi de la requête de recharge %s: %s", service_request_id, err)
+
+
+async def _async_poll_horn_light_request(hass: HomeAssistant, api, service_request_id: str) -> None:
+    """Refresh a few times until the horn/lights request completes."""
+    for attempt in range(1, HORN_LIGHT_POLL_ATTEMPTS + 1):
+        await asyncio.sleep(HORN_LIGHT_POLL_DELAY)
+        try:
+            status_data = await hass.async_add_executor_job(
+                api.check_horn_light_request, service_request_id
+            )
+            status = status_data.get("status")
+            _LOGGER.debug(
+                "Horn/lights poll %s/%s: status=%r",
+                attempt, HORN_LIGHT_POLL_ATTEMPTS, status,
+            )
+            if status and status not in ("PENDING", "IN_PROGRESS"):
+                return
+        except Exception as err:
+            _LOGGER.warning("Erreur lors du suivi de la requête phares/klaxon %s: %s", service_request_id, err)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -117,6 +160,26 @@ async def async_setup_entry(
     if is_electric or climate_requested:
         buttons.append(NissanStartClimateButton(coordinator, entry, runtime["api"]))
         buttons.append(NissanStopClimateButton(coordinator, entry, runtime["api"]))
+
+    # Recharge à distance (pour véhicules électriques)
+    start_charge_requested = any(
+        "charge" in (service.get("vehicleServiceName") or "").lower()
+        and service.get("serviceRequested") is True
+        for service in services
+    )
+    if is_electric or start_charge_requested:
+        buttons.append(NissanStartChargeButton(coordinator, entry, runtime["api"]))
+        buttons.append(NissanStopChargeButton(coordinator, entry, runtime["api"]))
+
+    # Phares et avertisseur sonore à distance
+    horn_lights_requested = any(
+        "horn" in (service.get("vehicleServiceName") or "").lower()
+        and service.get("serviceRequested") is True
+        for service in services
+    )
+    if horn_lights_requested or not services:
+        buttons.append(NissanFlashLightsButton(coordinator, entry, runtime["api"]))
+        buttons.append(NissanFlashLightsHornButton(coordinator, entry, runtime["api"]))
 
     # Note: Les boutons individuels de verrouillage / déverrouillage sont omis
     # car ils sont désormais remplacés par la véritable entité Lock (lock.py).
@@ -365,3 +428,172 @@ class NissanStopClimateButton(CoordinatorEntity, ButtonEntity):
             raise HomeAssistantError(f"Nissan stop climate failed: {err}") from err
         except Exception as err:
             raise HomeAssistantError("Nissan stop climate request failed") from err
+
+
+class NissanStartChargeButton(CoordinatorEntity, ButtonEntity):
+    """Start vehicle battery charging remotely."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "start_charge"
+    _attr_icon = "mdi:ev-station"
+
+    def __init__(self, coordinator, entry: ConfigEntry, api) -> None:
+        """Initialize the start charging button."""
+        super().__init__(coordinator)
+        self._api = api
+        self._attr_unique_id = f"{entry.entry_id}_start_charge"
+        vehicle = coordinator.data["vehicle"]
+        model = vehicle.get("model")
+        year = vehicle.get("year")
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, str(entry.data["vehicle_id"]))},
+            name=entry.title,
+            manufacturer="Nissan",
+            model=f"{year} {model}" if year and model else model,
+            model_id=vehicle.get("modelCode"),
+        )
+
+    async def async_press(self) -> None:
+        """Request remote charge start."""
+        _LOGGER.debug("Start charge button pressed")
+        try:
+            req_id = await self.hass.async_add_executor_job(self._api.start_charge)
+            if req_id:
+                self.hass.async_create_task(
+                    _async_poll_charge_request(self.hass, self._api, req_id, self.coordinator)
+                )
+        except NissanConnectAuthenticationError as err:
+            raise HomeAssistantError(
+                "Nissan access token expired or rejected; reauthenticate the integration"
+            ) from err
+        except NissanConnectCommandError as err:
+            raise HomeAssistantError(f"Nissan start charge failed: {err}") from err
+        except Exception as err:
+            raise HomeAssistantError("Nissan start charge request failed") from err
+
+
+class NissanStopChargeButton(CoordinatorEntity, ButtonEntity):
+    """Stop vehicle battery charging remotely."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "stop_charge"
+    _attr_icon = "mdi:battery-charging-off"
+
+    def __init__(self, coordinator, entry: ConfigEntry, api) -> None:
+        """Initialize the stop charging button."""
+        super().__init__(coordinator)
+        self._api = api
+        self._attr_unique_id = f"{entry.entry_id}_stop_charge"
+        vehicle = coordinator.data["vehicle"]
+        model = vehicle.get("model")
+        year = vehicle.get("year")
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, str(entry.data["vehicle_id"]))},
+            name=entry.title,
+            manufacturer="Nissan",
+            model=f"{year} {model}" if year and model else model,
+            model_id=vehicle.get("modelCode"),
+        )
+
+    async def async_press(self) -> None:
+        """Request remote charge stop."""
+        _LOGGER.debug("Stop charge button pressed")
+        try:
+            req_id = await self.hass.async_add_executor_job(self._api.stop_charge)
+            if req_id:
+                self.hass.async_create_task(
+                    _async_poll_charge_request(self.hass, self._api, req_id, self.coordinator)
+                )
+        except NissanConnectAuthenticationError as err:
+            raise HomeAssistantError(
+                "Nissan access token expired or rejected; reauthenticate the integration"
+            ) from err
+        except NissanConnectCommandError as err:
+            raise HomeAssistantError(f"Nissan stop charge failed: {err}") from err
+        except Exception as err:
+            raise HomeAssistantError("Nissan stop charge request failed") from err
+
+
+class NissanFlashLightsButton(CoordinatorEntity, ButtonEntity):
+    """Flash vehicle exterior lights remotely."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "flash_lights"
+    _attr_icon = "mdi:car-light-high"
+
+    def __init__(self, coordinator, entry: ConfigEntry, api) -> None:
+        """Initialize the flash lights button."""
+        super().__init__(coordinator)
+        self._api = api
+        self._attr_unique_id = f"{entry.entry_id}_flash_lights"
+        vehicle = coordinator.data["vehicle"]
+        model = vehicle.get("model")
+        year = vehicle.get("year")
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, str(entry.data["vehicle_id"]))},
+            name=entry.title,
+            manufacturer="Nissan",
+            model=f"{year} {model}" if year and model else model,
+            model_id=vehicle.get("modelCode"),
+        )
+
+    async def async_press(self) -> None:
+        """Request remote flash lights."""
+        _LOGGER.debug("Flash lights button pressed")
+        try:
+            req_id = await self.hass.async_add_executor_job(self._api.flash_lights)
+            if req_id:
+                self.hass.async_create_task(
+                    _async_poll_horn_light_request(self.hass, self._api, req_id)
+                )
+        except NissanConnectAuthenticationError as err:
+            raise HomeAssistantError(
+                "Nissan access token expired or rejected; reauthenticate the integration"
+            ) from err
+        except NissanConnectCommandError as err:
+            raise HomeAssistantError(f"Nissan flash lights failed: {err}") from err
+        except Exception as err:
+            raise HomeAssistantError("Nissan flash lights request failed") from err
+
+
+class NissanFlashLightsHornButton(CoordinatorEntity, ButtonEntity):
+    """Honk horn and flash lights remotely."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "flash_lights_horn"
+    _attr_icon = "mdi:bullhorn"
+
+    def __init__(self, coordinator, entry: ConfigEntry, api) -> None:
+        """Initialize the honk horn and flash lights button."""
+        super().__init__(coordinator)
+        self._api = api
+        self._attr_unique_id = f"{entry.entry_id}_flash_lights_horn"
+        vehicle = coordinator.data["vehicle"]
+        model = vehicle.get("model")
+        year = vehicle.get("year")
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, str(entry.data["vehicle_id"]))},
+            name=entry.title,
+            manufacturer="Nissan",
+            model=f"{year} {model}" if year and model else model,
+            model_id=vehicle.get("modelCode"),
+        )
+
+    async def async_press(self) -> None:
+        """Request remote honk horn and flash lights."""
+        _LOGGER.debug("Honk horn and flash lights button pressed")
+        try:
+            req_id = await self.hass.async_add_executor_job(self._api.flash_lights_horn)
+            if req_id:
+                self.hass.async_create_task(
+                    _async_poll_horn_light_request(self.hass, self._api, req_id)
+                )
+        except NissanConnectAuthenticationError as err:
+            raise HomeAssistantError(
+                "Nissan access token expired or rejected; reauthenticate the integration"
+            ) from err
+        except NissanConnectCommandError as err:
+            raise HomeAssistantError(f"Nissan horn and lights failed: {err}") from err
+        except Exception as err:
+            raise HomeAssistantError("Nissan horn and lights request failed") from err
+
