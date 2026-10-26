@@ -75,7 +75,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity):
     _attr_hvac_modes = [HVACMode.HEAT_COOL, HVACMode.OFF]
     _attr_min_temp = 16.0
     _attr_max_temp = 28.0
-    _attr_target_temperature_step = 0.5
+    _attr_target_temperature_step = 1.0
 
     def __init__(self, coordinator, entry: ConfigEntry, api) -> None:
         """Initialize the vehicle climate entity."""
@@ -130,7 +130,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity):
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
-        self._target_temperature = float(temp)
+        self._target_temperature = float(round(float(temp)))
         if self.hvac_mode != HVACMode.OFF:
             await self.async_set_hvac_mode(HVACMode.HEAT_COOL)
         else:
