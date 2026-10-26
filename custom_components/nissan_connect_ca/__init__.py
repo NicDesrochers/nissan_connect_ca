@@ -1,6 +1,6 @@
 # custom_components/nissan_connect_ca/__init__.py
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from datetime import timedelta
 
@@ -39,6 +39,7 @@ class NissanRuntimeData:
 
     api: NissanConnectCAAPI
     coordinator: DataUpdateCoordinator
+    options: dict = field(default_factory=dict)
 
 
 type NissanConfigEntry = ConfigEntry[NissanRuntimeData]
@@ -76,20 +77,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
 
     # Reuse existing API session for the same account to avoid duplicate logins
     if username and username in accounts:
-        _LOGGER.debug("Reusing existing Nissan API session for account %s", username)
+        _LOGGER.debug("[%s] Reusing existing Nissan API session for account %s", entry.title, username)
         shared_account = accounts[username]
         parent_api = shared_account["api"]
-        api = parent_api.clone_for_vehicle(vehicle_id=vehicle_id, vin=vin)
+        api = parent_api.clone_for_vehicle(
+            vehicle_id=vehicle_id, vin=vin, vehicle_name=entry.title
+        )
         shared_account["entries"].add(entry.entry_id)
         shared_account.setdefault("clients", set()).add(api)
     else:
-        _LOGGER.debug("Initializing Nissan API session for account %s", username)
+        _LOGGER.debug("[%s] Initializing Nissan API session for account %s", entry.title, username)
         api = NissanConnectCAAPI(
             username="",
             password="",
             tokens=entry.data,
             vehicle_id=vehicle_id,
             vin=vin,
+            vehicle_name=entry.title,
         )
         if username:
             accounts[username] = {
@@ -204,14 +208,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
-        name=f"{DOMAIN}_{entry.entry_id}",
+        name=f"{DOMAIN}_{entry.title}",
         update_method=async_update_vehicle,
         update_interval=timedelta(hours=normal_interval_hours),
     )
     coordinator_ref[0] = coordinator
     await coordinator.async_config_entry_first_refresh()
 
-    entry.runtime_data = NissanRuntimeData(api=api, coordinator=coordinator)
+    entry.runtime_data = NissanRuntimeData(
+        api=api,
+        coordinator=coordinator,
+        options=dict(entry.options),
+    )
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -220,6 +228,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when options are changed."""
+    runtime = getattr(entry, "runtime_data", None)
+    if runtime is not None and runtime.options == dict(entry.options):
+        _LOGGER.debug(
+            "[%s] Config entry data updated in background; skipping reload",
+            entry.title,
+        )
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

@@ -70,11 +70,12 @@ class NissanDoorsLockedSensor(CoordinatorEntity, BinarySensorEntity):
             (lock for lock in locks if lock.get("type") == "OVERALL_LOCK"),
             None,
         )
+        label = self._attr_device_info.get("name", "Nissan")
         if overall_lock is None:
-            _LOGGER.debug("No OVERALL_LOCK entry in locks: %s", locks)
+            _LOGGER.debug("[%s] No OVERALL_LOCK entry in locks: %s", label, locks)
             return None
         status = str(overall_lock.get("status", ""))
-        _LOGGER.debug("Nissan OVERALL_LOCK status: %r", status)
+        _LOGGER.debug("[%s] Nissan OVERALL_LOCK status: %r", label, status)
         return status.lower() != "locked"
 
 

@@ -38,15 +38,15 @@ def _overall_lock_status(coordinator):
     return None
 
 
-async def _async_poll_lock_status(coordinator, expect_locked: bool) -> None:
+async def _async_poll_lock_status(coordinator, expect_locked: bool, vehicle_name: str = "Nissan") -> None:
     """Refresh a few times until the lock status matches the requested state."""
     for attempt in range(1, LOCK_POLL_ATTEMPTS + 1):
         await asyncio.sleep(LOCK_POLL_DELAY)
         await coordinator.async_refresh()
         status = _overall_lock_status(coordinator)
         _LOGGER.debug(
-            "Lock poll %s/%s: OVERALL_LOCK=%r (expected locked=%s)",
-            attempt, LOCK_POLL_ATTEMPTS, status, expect_locked,
+            "[%s] Lock poll %s/%s: OVERALL_LOCK=%r (expected locked=%s)",
+            vehicle_name, attempt, LOCK_POLL_ATTEMPTS, status, expect_locked,
         )
         if status is not None and (status == "locked") == expect_locked:
             return
@@ -73,6 +73,7 @@ class NissanVehicleLock(CoordinatorEntity, LockEntity):
         """Initialize the vehicle lock entity."""
         super().__init__(coordinator)
         self._api = api
+        self._vehicle_name = entry.title
         self._attr_unique_id = f"{entry.entry_id}_door_lock"
         vehicle = coordinator.data["vehicle"]
         model = vehicle.get("model")
@@ -96,11 +97,11 @@ class NissanVehicleLock(CoordinatorEntity, LockEntity):
     @guard_command()
     async def async_lock(self, **kwargs) -> None:
         """Lock the doors."""
-        _LOGGER.debug("Locking vehicle doors")
+        _LOGGER.debug("[%s] Locking vehicle doors", self._vehicle_name)
         try:
             await self.hass.async_add_executor_job(self._api.lock_doors)
             self.hass.async_create_task(
-                _async_poll_lock_status(self.coordinator, True)
+                _async_poll_lock_status(self.coordinator, True, self._vehicle_name)
             )
         except NissanConnectAuthenticationError as err:
             raise HomeAssistantError(
@@ -114,11 +115,11 @@ class NissanVehicleLock(CoordinatorEntity, LockEntity):
     @guard_command()
     async def async_unlock(self, **kwargs) -> None:
         """Unlock the doors."""
-        _LOGGER.debug("Unlocking vehicle doors")
+        _LOGGER.debug("[%s] Unlocking vehicle doors", self._vehicle_name)
         try:
             await self.hass.async_add_executor_job(self._api.unlock_doors)
             self.hass.async_create_task(
-                _async_poll_lock_status(self.coordinator, False)
+                _async_poll_lock_status(self.coordinator, False, self._vehicle_name)
             )
         except NissanConnectAuthenticationError as err:
             raise HomeAssistantError(

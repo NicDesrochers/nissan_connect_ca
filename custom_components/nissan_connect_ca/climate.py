@@ -31,7 +31,9 @@ CLIMATE_POLL_ATTEMPTS = 12
 CLIMATE_POLL_DELAY = 10
 
 
-async def _async_poll_climate_request(hass: HomeAssistant, api, service_request_id: str, coordinator) -> None:
+async def _async_poll_climate_request(
+    hass: HomeAssistant, api, service_request_id: str, coordinator, vehicle_name: str = "Nissan"
+) -> None:
     """Refresh a few times until the climate request completes."""
     for attempt in range(1, CLIMATE_POLL_ATTEMPTS + 1):
         await asyncio.sleep(CLIMATE_POLL_DELAY)
@@ -41,14 +43,14 @@ async def _async_poll_climate_request(hass: HomeAssistant, api, service_request_
             )
             status = status_data.get("status")
             _LOGGER.debug(
-                "Climate poll %s/%s: status=%r, details=%s",
-                attempt, CLIMATE_POLL_ATTEMPTS, status, status_data.get("statusDetails")
+                "[%s] Climate poll %s/%s: status=%r, details=%s",
+                vehicle_name, attempt, CLIMATE_POLL_ATTEMPTS, status, status_data.get("statusDetails")
             )
             if status and status not in ("PENDING", "IN_PROGRESS"):
                 await coordinator.async_refresh()
                 return
         except Exception as err:
-            _LOGGER.warning("Erreur lors du suivi de la climatisation %s: %s", service_request_id, err)
+            _LOGGER.warning("[%s] Erreur lors du suivi de la climatisation %s: %s", vehicle_name, service_request_id, err)
 
 
 async def async_setup_entry(
@@ -85,6 +87,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Initialize the vehicle climate entity."""
         super().__init__(coordinator)
         self._api = api
+        self._vehicle_name = entry.title
         self._attr_unique_id = f"{entry.entry_id}_climate"
         self._target_temperature: float | None = None
         vehicle = coordinator.data["vehicle"]
@@ -190,7 +193,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     "unit": "CELSIUS",
                 }
         except Exception as err:
-            _LOGGER.debug("Could not update Nissan cloud climate defaults: %s", err)
+            _LOGGER.debug("[%s] Could not update Nissan cloud climate defaults: %s", self._vehicle_name, err)
 
         if self.hvac_mode != HVACMode.OFF:
             await self.async_set_hvac_mode(HVACMode.HEAT_COOL)
@@ -201,25 +204,25 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         if hvac_mode == HVACMode.OFF:
-            _LOGGER.debug("Stopping vehicle climate")
+            _LOGGER.debug("[%s] Stopping vehicle climate", self._vehicle_name)
             try:
                 req_id = await self.hass.async_add_executor_job(self._api.stop_climate)
                 if req_id:
                     self.hass.async_create_task(
-                        _async_poll_climate_request(self.hass, self._api, req_id, self.coordinator)
+                        _async_poll_climate_request(self.hass, self._api, req_id, self.coordinator, self._vehicle_name)
                     )
             except Exception as err:
                 raise HomeAssistantError(f"Failed to stop climate: {err}") from err
         else:
             target = self.target_temperature or DEFAULT_TARGET_TEMPERATURE
-            _LOGGER.debug("Starting vehicle climate at %s °C", target)
+            _LOGGER.debug("[%s] Starting vehicle climate at %s °C", self._vehicle_name, target)
             try:
                 req_id = await self.hass.async_add_executor_job(
                     self._api.start_climate, target, "CELSIUS"
                 )
                 if req_id:
                     self.hass.async_create_task(
-                        _async_poll_climate_request(self.hass, self._api, req_id, self.coordinator)
+                        _async_poll_climate_request(self.hass, self._api, req_id, self.coordinator, self._vehicle_name)
                     )
             except Exception as err:
                 raise HomeAssistantError(f"Failed to start climate: {err}") from err

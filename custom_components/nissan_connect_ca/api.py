@@ -65,7 +65,7 @@ def synchronized_account(func):
 class NissanConnectCAAPI:
     """API Client pour interagir avec NissanConnect CA."""
 
-    def __init__(self, username, password, tokens=None, vehicle_id=None, vin=None, account_lock=None):
+    def __init__(self, username, password, tokens=None, vehicle_id=None, vin=None, account_lock=None, vehicle_name=None):
         """Initialise l'API Client."""
         self._username = username
         self._password = password
@@ -73,6 +73,7 @@ class NissanConnectCAAPI:
         self._tokens = dict(tokens) if tokens else {}
         self.vehicle_id = vehicle_id
         self.vin = vin or (tokens or {}).get("vin")
+        self.vehicle_name = vehicle_name
         self._auth_stage = "idle"
         self._relogin_handler = None
         self._relogin_lock = threading.Lock()
@@ -106,6 +107,11 @@ class NissanConnectCAAPI:
             return json.loads(base64.urlsafe_b64decode(payload))
         except (IndexError, ValueError, TypeError):
             return {}
+
+    @property
+    def _label(self):
+        """Return a readable vehicle label for log messages."""
+        return self.vehicle_name or self.vin or self.vehicle_id or "Nissan"
 
     @property
     def auth_stage(self):
@@ -397,7 +403,7 @@ class NissanConnectCAAPI:
             headers = self.get_headers()
             response = self._session.get(url, headers=headers, timeout=15)
         _LOGGER.debug(
-            "GET %s -> HTTP %s", self._safe_url(url), response.status_code
+            "[%s] GET %s -> HTTP %s", self._label, self._safe_url(url), response.status_code
         )
         try:
             response.raise_for_status()
@@ -481,14 +487,14 @@ class NissanConnectCAAPI:
                 snapshot["climate"] = dynamic_data.get("climateStatus") or {}
                 snapshot["climateDefaults"] = dynamic_data.get("climateDefaults") or {}
             except Exception as err:
-                _LOGGER.warning("Could not fetch EV dynamic data via GraphQL: %s", err)
+                _LOGGER.warning("[%s] Could not fetch EV dynamic data via GraphQL: %s", self._label, err)
 
-        _LOGGER.debug("Nissan health data: %s", snapshot["health"])
-        _LOGGER.debug("Nissan engines data: %s", snapshot["engines"])
-        _LOGGER.debug("Nissan location data: %s", snapshot["location"])
-        _LOGGER.debug("Nissan battery data: %s", snapshot["battery"])
-        _LOGGER.debug("Nissan climate data: %s", snapshot["climate"])
-        _LOGGER.debug("Nissan climateDefaults data: %s", snapshot.get("climateDefaults"))
+        _LOGGER.debug("[%s] Nissan health data: %s", self._label, snapshot["health"])
+        _LOGGER.debug("[%s] Nissan engines data: %s", self._label, snapshot["engines"])
+        _LOGGER.debug("[%s] Nissan location data: %s", self._label, snapshot["location"])
+        _LOGGER.debug("[%s] Nissan battery data: %s", self._label, snapshot["battery"])
+        _LOGGER.debug("[%s] Nissan climate data: %s", self._label, snapshot["climate"])
+        _LOGGER.debug("[%s] Nissan climateDefaults data: %s", self._label, snapshot.get("climateDefaults"))
         return snapshot
 
     @staticmethod
@@ -587,7 +593,8 @@ class NissanConnectCAAPI:
             "variables": variables,
         }
         _LOGGER.debug(
-            "GraphQL request '%s' vers %s: variables=%s",
+            "[%s] GraphQL request '%s' vers %s: variables=%s",
+            self._label,
             operation_name,
             url,
             variables,
@@ -599,7 +606,8 @@ class NissanConnectCAAPI:
             response = self._session.post(url, headers=headers, json=payload, timeout=25)
 
         _LOGGER.debug(
-            "GraphQL '%s' réponse: HTTP %s, corps: %s",
+            "[%s] GraphQL '%s' réponse: HTTP %s, corps: %s",
+            self._label,
             operation_name,
             response.status_code,
             response.text[:1000],
@@ -642,7 +650,7 @@ class NissanConnectCAAPI:
         )
         return data.get("vehicle", {})
 
-    def clone_for_vehicle(self, vehicle_id, vin=None):
+    def clone_for_vehicle(self, vehicle_id, vin=None, vehicle_name=None):
         """Retourne un client API pour un autre véhicule partageant la session et les jetons."""
         client = NissanConnectCAAPI(
             username=self._username,
@@ -651,6 +659,7 @@ class NissanConnectCAAPI:
             vehicle_id=vehicle_id,
             vin=vin,
             account_lock=self._account_lock,
+            vehicle_name=vehicle_name,
         )
         client._session = self._session
         client._oauth_access_token = self._oauth_access_token

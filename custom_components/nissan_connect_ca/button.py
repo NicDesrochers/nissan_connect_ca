@@ -40,21 +40,21 @@ def _overall_lock_status(coordinator):
     )
 
 
-async def _async_poll_lock_status(coordinator, expect_locked: bool) -> None:
+async def _async_poll_lock_status(coordinator, expect_locked: bool, vehicle_name: str = "Nissan") -> None:
     """Refresh a few times until the lock status matches the requested state."""
     for attempt in range(1, LOCK_POLL_ATTEMPTS + 1):
         await asyncio.sleep(LOCK_POLL_DELAY)
         await coordinator.async_refresh()
         status = _overall_lock_status(coordinator)
         _LOGGER.debug(
-            "Lock poll %s/%s: OVERALL_LOCK=%r (expected locked=%s)",
-            attempt, LOCK_POLL_ATTEMPTS, status, expect_locked,
+            "[%s] Lock poll %s/%s: OVERALL_LOCK=%r (expected locked=%s)",
+            vehicle_name, attempt, LOCK_POLL_ATTEMPTS, status, expect_locked,
         )
         if status is not None and (status == "locked") == expect_locked:
             return
 
 
-async def _async_poll_engine_request(coordinator) -> None:
+async def _async_poll_engine_request(coordinator, vehicle_name: str = "Nissan") -> None:
     """Refresh a few times until the latest engine request leaves PENDING."""
     for attempt in range(1, ENGINE_POLL_ATTEMPTS + 1):
         await asyncio.sleep(ENGINE_POLL_DELAY)
@@ -63,8 +63,8 @@ async def _async_poll_engine_request(coordinator) -> None:
         latest = max(requests, key=lambda item: item.get("requestedTime", ""), default={})
         status = latest.get("status")
         _LOGGER.debug(
-            "Engine poll %s/%s: latest request status=%r",
-            attempt, ENGINE_POLL_ATTEMPTS, status,
+            "[%s] Engine poll %s/%s: latest request status=%r",
+            vehicle_name, attempt, ENGINE_POLL_ATTEMPTS, status,
         )
         if status and status != "PENDING":
             return
@@ -72,6 +72,7 @@ async def _async_poll_engine_request(coordinator) -> None:
 
 async def _async_poll_climate_request(hass: HomeAssistant, api, service_request_id: str, coordinator) -> None:
     """Refresh a few times until the climate request completes."""
+    label = getattr(api, "_label", "Nissan")
     for attempt in range(1, CLIMATE_POLL_ATTEMPTS + 1):
         await asyncio.sleep(CLIMATE_POLL_DELAY)
         try:
@@ -80,18 +81,19 @@ async def _async_poll_climate_request(hass: HomeAssistant, api, service_request_
             )
             status = status_data.get("status")
             _LOGGER.debug(
-                "Climate poll %s/%s: status=%r, details=%s",
-                attempt, CLIMATE_POLL_ATTEMPTS, status, status_data.get("statusDetails")
+                "[%s] Climate poll %s/%s: status=%r, details=%s",
+                label, attempt, CLIMATE_POLL_ATTEMPTS, status, status_data.get("statusDetails")
             )
             if status and status not in ("PENDING", "IN_PROGRESS"):
                 await coordinator.async_refresh()
                 return
         except Exception as err:
-            _LOGGER.warning("Erreur lors du suivi de la requête climatisation %s: %s", service_request_id, err)
+            _LOGGER.warning("[%s] Erreur lors du suivi de la requête climatisation %s: %s", label, service_request_id, err)
 
 
 async def _async_poll_charge_request(hass: HomeAssistant, api, service_request_id: str, coordinator) -> None:
     """Refresh a few times until the charge request completes."""
+    label = getattr(api, "_label", "Nissan")
     for attempt in range(1, CHARGE_POLL_ATTEMPTS + 1):
         await asyncio.sleep(CHARGE_POLL_DELAY)
         try:
@@ -100,18 +102,19 @@ async def _async_poll_charge_request(hass: HomeAssistant, api, service_request_i
             )
             status = status_data.get("status")
             _LOGGER.debug(
-                "Charge poll %s/%s: status=%r",
-                attempt, CHARGE_POLL_ATTEMPTS, status,
+                "[%s] Charge poll %s/%s: status=%r",
+                label, attempt, CHARGE_POLL_ATTEMPTS, status,
             )
             if status and status not in ("PENDING", "IN_PROGRESS"):
                 await coordinator.async_refresh()
                 return
         except Exception as err:
-            _LOGGER.warning("Erreur lors du suivi de la requête de recharge %s: %s", service_request_id, err)
+            _LOGGER.warning("[%s] Erreur lors du suivi de la requête de recharge %s: %s", label, service_request_id, err)
 
 
 async def _async_poll_horn_light_request(hass: HomeAssistant, api, service_request_id: str) -> None:
     """Refresh a few times until the horn/lights request completes."""
+    label = getattr(api, "_label", "Nissan")
     for attempt in range(1, HORN_LIGHT_POLL_ATTEMPTS + 1):
         await asyncio.sleep(HORN_LIGHT_POLL_DELAY)
         try:
@@ -120,13 +123,13 @@ async def _async_poll_horn_light_request(hass: HomeAssistant, api, service_reque
             )
             status = status_data.get("status")
             _LOGGER.debug(
-                "Horn/lights poll %s/%s: status=%r",
-                attempt, HORN_LIGHT_POLL_ATTEMPTS, status,
+                "[%s] Horn/lights poll %s/%s: status=%r",
+                label, attempt, HORN_LIGHT_POLL_ATTEMPTS, status,
             )
             if status and status not in ("PENDING", "IN_PROGRESS"):
                 return
         except Exception as err:
-            _LOGGER.warning("Erreur lors du suivi de la requête phares/klaxon %s: %s", service_request_id, err)
+            _LOGGER.warning("[%s] Erreur lors du suivi de la requête phares/klaxon %s: %s", label, service_request_id, err)
 
 
 async def async_setup_entry(
@@ -215,10 +218,11 @@ class NissanRefreshButton(CoordinatorEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Request an immediate vehicle data refresh."""
-        _LOGGER.debug("Refresh button pressed")
+        label = self._attr_device_info.get("name", "Nissan")
+        _LOGGER.debug("[%s] Refresh button pressed", label)
         await self.coordinator.async_refresh()
         _LOGGER.debug(
-            "Refresh finished, success: %s", self.coordinator.last_update_success
+            "[%s] Refresh finished, success: %s", label, self.coordinator.last_update_success
         )
 
 
@@ -249,13 +253,13 @@ class NissanRemoteStartButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request a remote start and refresh the vehicle state."""
-        _LOGGER.debug("Remote start button pressed")
+        _LOGGER.debug("[%s] Remote start button pressed", self._api._label)
         try:
             await self.hass.async_add_executor_job(
                 self._api.start_engine, self._engine_id
             )
             self.hass.async_create_task(
-                _async_poll_engine_request(self.coordinator)
+                _async_poll_engine_request(self.coordinator, self._api._label)
             )
         except NissanConnectAuthenticationError as err:
             raise HomeAssistantError(
@@ -293,11 +297,11 @@ class NissanUnlockDoorsButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request door unlock and refresh the vehicle state."""
-        _LOGGER.debug("Unlock doors button pressed")
+        _LOGGER.debug("[%s] Unlock doors button pressed", self._api._label)
         try:
             await self.hass.async_add_executor_job(self._api.unlock_doors)
             self.hass.async_create_task(
-                _async_poll_lock_status(self.coordinator, False)
+                _async_poll_lock_status(self.coordinator, False, self._api._label)
             )
         except NissanConnectAuthenticationError as err:
             raise HomeAssistantError(
@@ -335,11 +339,11 @@ class NissanLockDoorsButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request door lock and refresh the vehicle state."""
-        _LOGGER.debug("Lock doors button pressed")
+        _LOGGER.debug("[%s] Lock doors button pressed", self._api._label)
         try:
             await self.hass.async_add_executor_job(self._api.lock_doors)
             self.hass.async_create_task(
-                _async_poll_lock_status(self.coordinator, True)
+                _async_poll_lock_status(self.coordinator, True, self._api._label)
             )
         except NissanConnectAuthenticationError as err:
             raise HomeAssistantError(
@@ -378,7 +382,7 @@ class NissanStartClimateButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request remote climate start."""
-        _LOGGER.debug("Start climate button pressed")
+        _LOGGER.debug("[%s] Start climate button pressed", self._api._label)
         try:
             target_temp = 21.0
             for state in self.hass.states.async_all("climate"):
@@ -438,7 +442,7 @@ class NissanStopClimateButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request remote climate stop."""
-        _LOGGER.debug("Stop climate button pressed")
+        _LOGGER.debug("[%s] Stop climate button pressed", self._api._label)
         try:
             req_id = await self.hass.async_add_executor_job(self._api.stop_climate)
             if req_id:
@@ -481,7 +485,7 @@ class NissanStartChargeButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request remote charge start."""
-        _LOGGER.debug("Start charge button pressed")
+        _LOGGER.debug("[%s] Start charge button pressed", self._api._label)
         try:
             req_id = await self.hass.async_add_executor_job(self._api.start_charge)
             if req_id:
@@ -524,7 +528,7 @@ class NissanStopChargeButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request remote charge stop."""
-        _LOGGER.debug("Stop charge button pressed")
+        _LOGGER.debug("[%s] Stop charge button pressed", self._api._label)
         try:
             req_id = await self.hass.async_add_executor_job(self._api.stop_charge)
             if req_id:
@@ -567,7 +571,7 @@ class NissanFlashLightsButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request remote flash lights."""
-        _LOGGER.debug("Flash lights button pressed")
+        _LOGGER.debug("[%s] Flash lights button pressed", self._api._label)
         try:
             req_id = await self.hass.async_add_executor_job(self._api.flash_lights)
             if req_id:
@@ -610,7 +614,7 @@ class NissanFlashLightsHornButton(CoordinatorEntity, ButtonEntity):
     @guard_command()
     async def async_press(self) -> None:
         """Request remote honk horn and flash lights."""
-        _LOGGER.debug("Honk horn and flash lights button pressed")
+        _LOGGER.debug("[%s] Honk horn and flash lights button pressed", self._api._label)
         try:
             req_id = await self.hass.async_add_executor_job(self._api.flash_lights_horn)
             if req_id:
