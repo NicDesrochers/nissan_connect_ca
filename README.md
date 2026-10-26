@@ -15,7 +15,7 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
 
 * **Full Climate Control (`climate`)**:
   * Real Home Assistant climate entity with cabin temperature display.
-  * Adjust target temperature (16 °C to 28 °C) in 1 °C increments.
+  * Adjust target temperature (18 °C to 32 °C) in 1 °C increments.
   * Turn heating/cooling on (`HEAT_COOL`) or off (`OFF`) directly from dashboards or automations.
   * Instant action feedback and follow-up request polling.
 * **Real Door Lock Entity (`lock`)**:

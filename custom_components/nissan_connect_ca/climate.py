@@ -73,8 +73,8 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity):
         | ClimateEntityFeature.TURN_OFF
     )
     _attr_hvac_modes = [HVACMode.HEAT_COOL, HVACMode.OFF]
-    _attr_min_temp = 16.0
-    _attr_max_temp = 28.0
+    _attr_min_temp = 18.0
+    _attr_max_temp = 32.0
     _attr_target_temperature_step = 1.0
 
     def __init__(self, coordinator, entry: ConfigEntry, api) -> None:
