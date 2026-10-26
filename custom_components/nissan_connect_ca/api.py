@@ -333,7 +333,10 @@ class NissanConnectCAAPI:
             return False
         initial_token = self._access_token
         with self._relogin_lock:
-            if not force and self._access_token != initial_token and not self._is_token_expired():
+            # Si un autre véhicule a déjà renouvelé le token pendant qu'on attendait le verrou,
+            # on réutilise directement le nouveau token sans faire de double login auprès de Nissan.
+            if self._access_token != initial_token and not self._is_token_expired():
+                _LOGGER.debug("Token was already refreshed by another vehicle, reusing it")
                 return True
             try:
                 self._relogin_handler()
