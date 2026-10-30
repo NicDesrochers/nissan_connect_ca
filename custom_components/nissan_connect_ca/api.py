@@ -79,6 +79,7 @@ class NissanConnectCAAPI:
         self._relogin_lock = threading.Lock()
         self._account_lock = account_lock if account_lock is not None else threading.RLock()
         self._callback_diagnostic = "not-received"
+        self._last_snapshot = {}
 
         # Initialisation des jetons
         self._access_token = self._tokens.get(CONF_TOKEN)
@@ -455,26 +456,66 @@ class NissanConnectCAAPI:
         engines_url = VEHICLE_ENGINES_URL.format(vehicle_id=vehicle_id)
         location_url = VEHICLE_LOCATION_URL.format(vehicle_id=vehicle_id)
 
-        vehicle_info = self._get_json(vehicle_url)
+        try:
+            vehicle_info = self._get_json(vehicle_url)
+        except (requests.RequestException, ValueError) as err:
+            if self._last_snapshot.get("vehicle"):
+                _LOGGER.warning(
+                    "[%s] Erreur lors de la récupération des infos véhicule (%s), utilisation du cache",
+                    self._label,
+                    err,
+                )
+                vehicle_info = self._last_snapshot["vehicle"]
+            else:
+                raise
+
         if not self.vin:
             self.vin = vehicle_info.get("vin") or vehicle_info.get("refProperties", {}).get("vin")
 
-        snapshot = {
-            "vehicle": vehicle_info,
-            "health": self._get_json(health_url, require_id_token=True),
-            "engines": self._get_json(engines_url, require_id_token=True),
-            "location": {},
-            "battery": {},
-            "climate": {},
-        }
+        health_data = self._last_snapshot.get("health", {})
         try:
-            snapshot["location"] = self._get_json(
+            health_data = self._get_json(health_url, require_id_token=True)
+        except (requests.RequestException, ValueError) as err:
+            _LOGGER.warning(
+                "[%s] Erreur lors de la récupération du diagnostic (health: %s), conservation des dernières données",
+                self._label,
+                err,
+            )
+
+        engines_data = self._last_snapshot.get("engines", {})
+        try:
+            engines_data = self._get_json(engines_url, require_id_token=True)
+        except (requests.RequestException, ValueError) as err:
+            _LOGGER.warning(
+                "[%s] Erreur lors de la récupération de l'état du moteur (engines: %s), conservation des dernières données",
+                self._label,
+                err,
+            )
+
+        location_data = self._last_snapshot.get("location", {})
+        try:
+            location_data = self._get_json(
                 location_url, require_id_token=True
             )
         except requests.HTTPError as err:
-            if err.response is None or err.response.status_code not in (403, 404):
-                raise
-            _LOGGER.debug("Nissan location service is unavailable for this vehicle")
+            if err.response is not None and err.response.status_code in (403, 404):
+                _LOGGER.debug("[%s] Nissan location service is unavailable for this vehicle", self._label)
+            else:
+                _LOGGER.warning(
+                    "[%s] Erreur lors de la récupération de la localisation (%s), conservation des dernières données",
+                    self._label,
+                    err,
+                )
+        except (requests.RequestException, ValueError) as err:
+            _LOGGER.warning(
+                "[%s] Erreur lors de la récupération de la localisation (%s), conservation des dernières données",
+                self._label,
+                err,
+            )
+
+        battery_data = self._last_snapshot.get("battery", {})
+        climate_data = self._last_snapshot.get("climate", {})
+        climate_defaults = self._last_snapshot.get("climateDefaults", {})
 
         if (
             vehicle_info.get("engineType") in ("Electric", "EV")
@@ -483,11 +524,27 @@ class NissanConnectCAAPI:
         ):
             try:
                 dynamic_data = self.get_dynamic_vehicle_data()
-                snapshot["battery"] = dynamic_data.get("batteryStatus") or {}
-                snapshot["climate"] = dynamic_data.get("climateStatus") or {}
-                snapshot["climateDefaults"] = dynamic_data.get("climateDefaults") or {}
+                if dynamic_data.get("batteryStatus"):
+                    battery_data = dynamic_data["batteryStatus"]
+                if dynamic_data.get("climateStatus"):
+                    climate_data = dynamic_data["climateStatus"]
+                if dynamic_data.get("climateDefaults"):
+                    climate_defaults = dynamic_data["climateDefaults"]
             except Exception as err:
                 _LOGGER.warning("[%s] Could not fetch EV dynamic data via GraphQL: %s", self._label, err)
+
+        snapshot = {
+            "vehicle": vehicle_info,
+            "health": health_data,
+            "engines": engines_data,
+            "location": location_data,
+            "battery": battery_data,
+            "climate": climate_data,
+        }
+        if climate_defaults:
+            snapshot["climateDefaults"] = climate_defaults
+
+        self._last_snapshot = snapshot
 
         _LOGGER.debug("[%s] Nissan health data: %s", self._label, snapshot["health"])
         _LOGGER.debug("[%s] Nissan engines data: %s", self._label, snapshot["engines"])
@@ -671,6 +728,7 @@ class NissanConnectCAAPI:
         client._relogin_handler = self._relogin_handler
         client._relogin_lock = self._relogin_lock
         client._account_lock = self._account_lock
+        client._last_snapshot = dict(self._last_snapshot)
         return client
 
     @synchronized_account

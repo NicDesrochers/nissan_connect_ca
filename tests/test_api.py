@@ -125,3 +125,43 @@ def test_synchronized_account_queues_operations():
     assert max_concurrent == 1
     assert len(execution_order) == 4
 
+
+def test_get_vehicle_snapshot_health_500_resilience():
+    import requests
+    api = _api()
+    api.set_tokens({"access_token": "a", "id_token": "i", "expires_at": 9999999999})
+
+    def mock_get_json(url, *, require_id_token=False):
+        if "/health" in url:
+            return {"batteryLevel": 85, "mil": []}
+        if "/engines" in url:
+            return {"engines": []}
+        if "/location" in url:
+            return {"latitude": 45.0, "longitude": -73.0}
+        return {"vin": "VIN123", "model": "LEAF", "engineType": "Electric"}
+
+    with patch.object(api, "_get_json", side_effect=mock_get_json), \
+         patch.object(api, "get_dynamic_vehicle_data", return_value={"batteryStatus": {"level": 85}}):
+        snap1 = api.get_vehicle_snapshot()
+        assert snap1["health"]["batteryLevel"] == 85
+
+    def mock_get_json_fail_health(url, *, require_id_token=False):
+        if "/health" in url:
+            mock_response = requests.Response()
+            mock_response.status_code = 500
+            raise requests.exceptions.HTTPError("500 Server Error", response=mock_response)
+        if "/engines" in url:
+            return {"engines": []}
+        if "/location" in url:
+            return {"latitude": 45.0, "longitude": -73.0}
+        return {"vin": "VIN123", "model": "LEAF", "engineType": "Electric"}
+
+    with patch.object(api, "_get_json", side_effect=mock_get_json_fail_health), \
+         patch.object(api, "get_dynamic_vehicle_data", return_value={"batteryStatus": {"level": 84}}):
+        snap2 = api.get_vehicle_snapshot()
+        # Les données health précédentes sont conservées
+        assert snap2["health"]["batteryLevel"] == 85
+        # Les données dynamiques ont quand même été rafraîchies
+        assert snap2["battery"]["level"] == 84
+
+

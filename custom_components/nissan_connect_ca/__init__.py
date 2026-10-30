@@ -203,7 +203,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
         except NissanConnectAuthenticationError as err:
             raise ConfigEntryAuthFailed("Nissan access token expired or rejected") from err
         except Exception as err:
-            raise UpdateFailed("Unable to retrieve the Nissan vehicle") from err
+            coordinator = coordinator_ref[0]
+            if coordinator is not None and coordinator.data:
+                _LOGGER.warning(
+                    "[%s] Échec de communication avec les serveurs Nissan (%s). Conservation des dernières données valides.",
+                    entry.title,
+                    err,
+                )
+                return coordinator.data
+            raise UpdateFailed(f"Unable to retrieve the Nissan vehicle: {err}") from err
 
     coordinator = DataUpdateCoordinator(
         hass,
