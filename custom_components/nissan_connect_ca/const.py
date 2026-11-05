@@ -18,6 +18,12 @@ CONF_CHARGING_UPDATE_INTERVAL = "charging_update_interval"
 DEFAULT_CHARGING_UPDATE_INTERVAL = 30
 CONF_CLIMATE_UPDATE_INTERVAL = "climate_update_interval"
 DEFAULT_CLIMATE_UPDATE_INTERVAL = 10
+# Intervalle (heures) entre deux rafraîchissements forcés de la batterie
+# (mutation refreshBatteryStatus) tant que le véhicule est branché ou en charge.
+CONF_BATTERY_REFRESH_INTERVAL = "battery_refresh_interval"
+DEFAULT_BATTERY_REFRESH_INTERVAL = 2
+MIN_BATTERY_REFRESH_INTERVAL = 1
+MAX_BATTERY_REFRESH_INTERVAL = 8
 
 # API Endpoints
 # Ces URLs proviennent de vos traces et sont cruciales.

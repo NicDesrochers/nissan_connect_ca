@@ -40,7 +40,8 @@
         "data": {
           "update_interval": "Intervalle de mise à jour normal (heures, 1-24)",
           "charging_update_interval": "Intervalle de mise à jour en recharge (minutes, 5-120)",
-          "climate_update_interval": "Intervalle de mise à jour quand la clim est active (minutes, 2-60)"
+          "climate_update_interval": "Intervalle de mise à jour quand la clim est active (minutes, 2-60)",
+          "battery_refresh_interval": "Rafraîchissement forcé de la batterie quand branché (heures, 1-8)"
         }
       }
     }
@@ -128,6 +129,9 @@
     "button": {
       "refresh_vehicle": {
         "name": "Actualiser les données du véhicule"
+      },
+      "refresh_battery": {
+        "name": "Actualiser l'état de la batterie"
       },
       "remote_start": {
         "name": "Démarrer le moteur à distance"

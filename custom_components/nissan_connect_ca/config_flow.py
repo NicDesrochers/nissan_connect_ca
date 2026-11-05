@@ -18,6 +18,10 @@ from .const import (
     DEFAULT_CHARGING_UPDATE_INTERVAL,
     CONF_CLIMATE_UPDATE_INTERVAL,
     DEFAULT_CLIMATE_UPDATE_INTERVAL,
+    CONF_BATTERY_REFRESH_INTERVAL,
+    DEFAULT_BATTERY_REFRESH_INTERVAL,
+    MIN_BATTERY_REFRESH_INTERVAL,
+    MAX_BATTERY_REFRESH_INTERVAL,
 )
 from .api import NissanConnectCAAPI
 from .crypto import async_encrypt
@@ -206,6 +210,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_CLIMATE_UPDATE_INTERVAL, DEFAULT_CLIMATE_UPDATE_INTERVAL
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=2, max=60)),
+                vol.Optional(
+                    CONF_BATTERY_REFRESH_INTERVAL,
+                    default=options.get(
+                        CONF_BATTERY_REFRESH_INTERVAL, DEFAULT_BATTERY_REFRESH_INTERVAL
+                    ),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(
+                        min=MIN_BATTERY_REFRESH_INTERVAL,
+                        max=MAX_BATTERY_REFRESH_INTERVAL,
+                    ),
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

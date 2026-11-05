@@ -1,5 +1,7 @@
 # custom_components/nissan_connect_ca/__init__.py
+import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from functools import partial
 from datetime import timedelta
@@ -26,11 +28,17 @@ from .const import (
     DEFAULT_CHARGING_UPDATE_INTERVAL,
     CONF_CLIMATE_UPDATE_INTERVAL,
     DEFAULT_CLIMATE_UPDATE_INTERVAL,
+    CONF_BATTERY_REFRESH_INTERVAL,
+    DEFAULT_BATTERY_REFRESH_INTERVAL,
+    MIN_BATTERY_REFRESH_INTERVAL,
+    MAX_BATTERY_REFRESH_INTERVAL,
     DOMAIN,
 )
 from .crypto import KEY_FILE, _decrypt
 
 _LOGGER = logging.getLogger(__name__)
+
+BATTERY_REFRESH_SETTLE_SECONDS = 20
 
 
 @dataclass
@@ -148,10 +156,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
         CONF_CLIMATE_UPDATE_INTERVAL, DEFAULT_CLIMATE_UPDATE_INTERVAL
     )
 
+    battery_refresh_hours = min(
+        max(
+            entry.options.get(
+                CONF_BATTERY_REFRESH_INTERVAL, DEFAULT_BATTERY_REFRESH_INTERVAL
+            ),
+            MIN_BATTERY_REFRESH_INTERVAL,
+        ),
+        MAX_BATTERY_REFRESH_INTERVAL,
+    )
+    last_battery_refresh = [None]
+
     coordinator_ref = [None]
+
+    async def async_force_battery_refresh_if_due() -> None:
+        """Ask the car to push its battery state while plugged in or charging.
+
+        Nissan's cloud does not always receive battery updates during a charge,
+        so the refreshBatteryStatus mutation is sent at most once per interval.
+        """
+        coordinator = coordinator_ref[0]
+        battery = ((coordinator.data if coordinator else None) or {}).get("battery") or {}
+        if not (battery.get("isCharging") or battery.get("isPluggedIn")):
+            last_battery_refresh[0] = None
+            return
+        now = time.monotonic()
+        last = last_battery_refresh[0]
+        if last is not None and now - last < battery_refresh_hours * 3600:
+            return
+        last_battery_refresh[0] = now
+        try:
+            success = await hass.async_add_executor_job(api.refresh_battery_status)
+            _LOGGER.debug("[%s] Forced battery refresh requested: %s", entry.title, success)
+            await asyncio.sleep(BATTERY_REFRESH_SETTLE_SECONDS)
+        except NissanConnectAuthenticationError:
+            raise
+        except Exception as err:
+            _LOGGER.warning("[%s] Forced battery refresh failed: %s", entry.title, err)
 
     async def async_update_vehicle() -> dict:
         try:
+            await async_force_battery_refresh_if_due()
             snapshot = await hass.async_add_executor_job(api.get_vehicle_snapshot)
             # Persist discovered VIN if it was missing in entry data
             if api.vin and not entry.data.get("vin"):

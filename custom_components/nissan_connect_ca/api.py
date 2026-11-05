@@ -895,6 +895,21 @@ class NissanConnectCAAPI:
         return data.get("checkChargeServiceRequest", {})
 
     @synchronized_account
+    def refresh_battery_status(self):
+        """Demande au véhicule de pousser son état de batterie vers le cloud Nissan."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation RefreshBatteryStatus($vin: String!) { "
+            "refreshBatteryStatus(vin: $vin) { __typename success } }"
+        )
+        data = self._post_graphql("RefreshBatteryStatus", query, {"vin": vin})
+        result = data.get("refreshBatteryStatus") or {}
+        _LOGGER.debug("RefreshBatteryStatus résultat: %s", result)
+        return result.get("success")
+
+    @synchronized_account
     def flash_lights(self):
         """Fait clignoter les phares du véhicule à distance."""
         vin = self.vin or self.vehicle_id

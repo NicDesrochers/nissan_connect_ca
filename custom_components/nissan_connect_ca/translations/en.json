@@ -40,7 +40,8 @@
         "data": {
           "update_interval": "Normal update interval (hours, 1-24)",
           "charging_update_interval": "Charging update interval (minutes, 5-120)",
-          "climate_update_interval": "Active climate update interval (minutes, 2-60)"
+          "climate_update_interval": "Active climate update interval (minutes, 2-60)",
+          "battery_refresh_interval": "Forced battery refresh while plugged in (hours, 1-8)"
         }
       }
     }
@@ -128,6 +129,9 @@
     "button": {
       "refresh_vehicle": {
         "name": "Refresh vehicle data"
+      },
+      "refresh_battery": {
+        "name": "Refresh battery status"
       },
       "remote_start": {
         "name": "Start engine remotely"

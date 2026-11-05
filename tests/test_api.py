@@ -30,6 +30,18 @@ def test_set_climate_defaults_payload():
     assert "parameters" in variables
 
 
+def test_refresh_battery_status_payload():
+    api = _api()
+    with patch.object(
+        api, "_post_graphql", return_value={"refreshBatteryStatus": {"success": True}}
+    ) as post:
+        assert api.refresh_battery_status() is True
+    name, query, variables = post.call_args.args
+    assert name == "RefreshBatteryStatus"
+    assert "refreshBatteryStatus(vin: $vin)" in query
+    assert variables == {"vin": "VIN123"}
+
+
 def test_start_climate_does_not_set_default():
     api = _api()
     with patch.object(

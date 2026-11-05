@@ -30,6 +30,7 @@ CHARGE_POLL_ATTEMPTS = 10
 CHARGE_POLL_DELAY = 10
 HORN_LIGHT_POLL_ATTEMPTS = 6
 HORN_LIGHT_POLL_DELAY = 5
+BATTERY_REFRESH_SETTLE_DELAY = 20
 
 
 def _overall_lock_status(coordinator):
@@ -144,8 +145,12 @@ async def async_setup_entry(
     services = vehicle.get("allVehicleServiceDetails", {}).get(
         "vehicleServiceDetails", []
     )
+    # Some vehicles (ex. Rogue 2026) only expose the "... AVK" variant as requested.
     remote_start_requested = any(
-        service.get("vehicleServiceName") == "Remote Engine Start / Stop"
+        (
+            (service.get("vehicleServiceName") or "").startswith("Remote Engine Start / Stop")
+            or service.get("serviceGroup") == "rts-engine-state"
+        )
         and service.get("serviceRequested") is True
         for service in services
     )
@@ -177,6 +182,8 @@ async def async_setup_entry(
     if is_electric or start_charge_requested:
         buttons.append(NissanStartChargeButton(coordinator, entry, runtime.api))
         buttons.append(NissanStopChargeButton(coordinator, entry, runtime.api))
+    if is_electric:
+        buttons.append(NissanRefreshBatteryButton(coordinator, entry, runtime.api))
 
     # Phares et avertisseur sonore à distance
     horn_lights_requested = any(
@@ -457,6 +464,47 @@ class NissanStopClimateButton(CoordinatorEntity, ButtonEntity):
             raise HomeAssistantError(f"Nissan stop climate failed: {err}") from err
         except Exception as err:
             raise HomeAssistantError("Nissan stop climate request failed") from err
+
+
+class NissanRefreshBatteryButton(CoordinatorEntity, ButtonEntity):
+    """Ask the vehicle to push a fresh battery status to Nissan's cloud."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "refresh_battery"
+    _attr_icon = "mdi:battery-sync"
+
+    def __init__(self, coordinator, entry: ConfigEntry, api) -> None:
+        """Initialize the battery refresh button."""
+        super().__init__(coordinator)
+        self._api = api
+        self._attr_unique_id = f"{entry.entry_id}_refresh_battery"
+        vehicle = coordinator.data["vehicle"]
+        model = vehicle.get("model")
+        year = vehicle.get("year")
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, str(entry.data["vehicle_id"]))},
+            name=entry.title,
+            manufacturer="Nissan",
+            model=f"{year} {model}" if year and model else model,
+            model_id=vehicle.get("modelCode"),
+        )
+
+    @guard_command()
+    async def async_press(self) -> None:
+        """Send refreshBatteryStatus, then re-read the vehicle data."""
+        _LOGGER.debug("[%s] Refresh battery button pressed", self._api._label)
+        try:
+            await self.hass.async_add_executor_job(self._api.refresh_battery_status)
+            await asyncio.sleep(BATTERY_REFRESH_SETTLE_DELAY)
+            await self.coordinator.async_refresh()
+        except NissanConnectAuthenticationError as err:
+            raise HomeAssistantError(
+                "Nissan access token expired or rejected; reauthenticate the integration"
+            ) from err
+        except NissanConnectCommandError as err:
+            raise HomeAssistantError(f"Nissan battery refresh failed: {err}") from err
+        except Exception as err:
+            raise HomeAssistantError("Nissan battery refresh request failed") from err
 
 
 class NissanStartChargeButton(CoordinatorEntity, ButtonEntity):

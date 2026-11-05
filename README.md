@@ -36,6 +36,7 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
   * **Idle Polling:** 8 hours default (configurable from 1h to 24h) to avoid abusive polling and prevent account rate limits.
   * **Charging Polling:** Automatically accelerates to 30 minutes (configurable 5m to 120m) while the vehicle is actively charging.
   * **Climate Polling:** Automatically accelerates to 10 minutes (configurable 2m to 60m) while cabin heating/cooling is active.
+  * **Forced Battery Refresh:** While an EV is plugged in or charging, the integration sends Nissan's `refreshBatteryStatus` request every 2 hours by default (configurable 1h to 8h), since the cloud does not always receive battery updates during a charge. A "Refresh battery status" button triggers it manually.
 * **Multi-Vehicle Single Session (Zero Duplicate Logins)**:
   * Having multiple Nissan vehicles (e.g. Ariya + Leaf) on the same account shares the exact same authenticated HTTP session, cookies, and OAuth tokens.
   * Zero redundant authentications to avoid server bans or quota violations.
