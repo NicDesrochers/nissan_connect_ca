@@ -69,7 +69,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._pending_data = data
                 self._pending_vehicles = available_vehicles
                 if len(available_vehicles) == 1:
-                    return self._create_vehicle_entry(data, available_vehicles[0])
+                    return await self._create_vehicle_entry(data, available_vehicles[0])
                 return await self.async_step_select_vehicle()
 
         return self.async_show_form(
@@ -85,7 +85,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 for item in self._pending_vehicles
                 if item["vehicle_id"] == selected_id
             )
-            return self._create_vehicle_entry(self._pending_data, vehicle)
+            return await self._create_vehicle_entry(self._pending_data, vehicle)
 
         choices = {
             vehicle["vehicle_id"]: vehicle["name"]
@@ -98,13 +98,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    def _create_vehicle_entry(self, data, vehicle):
+    async def _create_vehicle_entry(self, data, vehicle):
         """Create one config entry for the selected vehicle."""
         vehicle_id = vehicle["vehicle_id"]
         data[CONF_VEHICLE_ID] = vehicle_id
         if vehicle.get("vin"):
             data["vin"] = vehicle["vin"]
-        self.async_set_unique_id(vehicle_id)
+        await self.async_set_unique_id(vehicle_id)
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
             title=f"Nissan Connect CA ({vehicle['name']})",

@@ -9,6 +9,7 @@ def test_sensitive_fields_are_redacted():
         "vin": "JN1AZ2EBXTM303707",
         "location": {"latitude": 45.5, "longitude": -73.5},
         "access_token": "tok",
+        "vehicleNickname": "Ma Rogue",
         "battery": {"level": 66},
     }
     result = async_redact_data(data, TO_REDACT)
@@ -16,4 +17,5 @@ def test_sensitive_fields_are_redacted():
     assert result["location"]["latitude"] == "**REDACTED**"
     assert result["location"]["longitude"] == "**REDACTED**"
     assert result["access_token"] == "**REDACTED**"
+    assert result["vehicleNickname"] == "**REDACTED**"
     assert result["battery"]["level"] == 66

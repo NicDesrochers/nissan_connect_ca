@@ -29,6 +29,7 @@ TO_REDACT = {
     "user_id",
     "licensePlate",
     "nickname",
+    "vehicleNickname",
 }
 
 
@@ -47,7 +48,7 @@ async def async_get_config_entry_diagnostics(
     masked_vin = vin[:8] + "******" if len(vin) >= 8 else "***"
 
     return {
-        "title": entry.title,
+        "title": "**REDACTED**",
         "vin": masked_vin,
         "vehicle_id": "**REDACTED**",
         "options": dict(entry.options),
