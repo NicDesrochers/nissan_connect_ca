@@ -22,6 +22,8 @@ import homeassistant.util.dt as dt_util
 
 from .const import DOMAIN
 
+PARALLEL_UPDATES = 0
+
 TYRE_POSITION_KEYS = {
     "FRONT_LEFT": "tyre_pressure_front_left",
     "FRONT_RIGHT": "tyre_pressure_front_right",

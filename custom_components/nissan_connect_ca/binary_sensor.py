@@ -14,6 +14,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 
+PARALLEL_UPDATES = 0
+
 _LOGGER = logging.getLogger(__name__)
 
 
