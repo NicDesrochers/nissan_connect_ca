@@ -22,10 +22,12 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
   * Standard Home Assistant lock entity reflecting door lock state in real-time.
   * Lock and unlock doors with a single stateful tile.
 * **Remote Action Buttons (`button`)**:
+  * **Start / Stop Engine** (`button.*_start_engine_remotely` / `button.*_stop_engine_remotely`): Remote engine controls appear for non-electric vehicles when Nissan reports the service as requested and an engine ID is available. The stop command uses `STOP` on the same endpoint as start; vehicle-side operation has not yet been confirmed.
   * **Start / Stop Charging** (`button.*_start_charging` / `button.*_stop_charging`): Remotely trigger or stop EV charging on demand (ideal for solar surplus or off-peak electricity automations).
   * **Locate Vehicle & Flash Lights** (`button.*_flash_lights`): Flash vehicle exterior lights to easily locate the car in dark parking areas.
   * **Honk Horn & Flash Lights** (`button.*_honk_horn_and_flash_lights`): Trigger both horn and lights for quick vehicle location.
   * **Start / Stop Climate** (`button.*_start_climate` / `button.*_stop_climate`): Quick-action buttons for pre-conditioning cabin temperature.
+  * **Request vehicle status update**: Ask a supported vehicle to report fresh status to Nissan; this differs from the existing button that only reads the cloud data.
 * **Complete Electric Vehicle (EV) Metrics**:
   * **Battery Level** (`sensor.*_battery_level` in %).
   * **Remaining Autonomy / Range** (`sensor.*_remaining_range` in km with accurate metric conversion).
@@ -42,6 +44,11 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
   * Zero redundant authentications to avoid server bans or quota violations.
   * Coordinated token renewal with thread locking across all configured vehicles.
 * **Diagnostics & Health Indicators**:
+  * **Schedules (EV)**: One diagnostic count sensor and one configuration switch per charge/climate schedule reported by Nissan (the switch enables or disables the schedule).
+  * **Charge limit (EV, BaseElectric2)**: A `number` entity reads and sets the target charge limit (50–100 %, steps of 10).
+  * **Charge history and V2L (EV)**: Sensors for the latest month's charge sessions, energy and duration, plus V2L state and minimum level, created only when Nissan returns data.
+  * **Alerts**: Diagnostic counters for enabled boundary, curfew and speed alerts, and the valet alert status (read-only; locations are not exposed).
+  * **Tire pressures**: Read GraphQL tire pressures in PSI when available, falling back to RTS pressure values and units. Tire sensors are added when readings first become available; availability depends on the vehicle and Nissan backend.
   * **Last Communication** (`sensor.*_last_communication`): Timestamp when the car last uploaded telemetry to Nissan.
   * **Service Due Mileage** (`sensor.*_service_due_mileage`): Next maintenance milestone.
   * **12V Auxiliary Battery Alert** (`binary_sensor.*_12v_battery_alert`): Warns you before a weak 12V battery prevents starting.

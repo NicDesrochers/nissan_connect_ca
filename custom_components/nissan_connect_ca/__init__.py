@@ -59,6 +59,8 @@ PLATFORMS = [
     Platform.BUTTON,
     Platform.LOCK,
     Platform.CLIMATE,
+    Platform.NUMBER,
+    Platform.SWITCH,
 ]
 
 

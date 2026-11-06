@@ -3,6 +3,7 @@
 import asyncio
 import logging
 
+import requests
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE
@@ -69,6 +70,25 @@ async def _async_poll_engine_request(coordinator, vehicle_name: str = "Nissan") 
         )
         if status and status != "PENDING":
             return
+
+
+async def _async_poll_vehicle_refresh(hass, api, request_id, coordinator) -> None:
+    """Wait for the requested vehicle refresh, then read the updated snapshot."""
+    for _ in range(CLIMATE_POLL_ATTEMPTS):
+        await asyncio.sleep(CLIMATE_POLL_DELAY)
+        try:
+            result = await hass.async_add_executor_job(api.check_refresh_vehicle_status, request_id)
+        except (NissanConnectAuthenticationError, NissanConnectCommandError, requests.RequestException) as err:
+            _LOGGER.warning("[%s] Vehicle status refresh tracking failed: %s", api._label, err)
+            return
+        status = result.get("status")
+        if status in ("SUCCESS", "SUCCESS_EXECUTION_CONFIRMED"):
+            await coordinator.async_refresh()
+            return
+        if status and status not in ("PENDING", "IN_PROGRESS", "INITIATED", "SENT", "SCHEDULED"):
+            _LOGGER.warning("[%s] Vehicle status refresh ended with status %s", api._label, status)
+            return
+    _LOGGER.warning("[%s] Vehicle status refresh did not complete in time", api._label)
 
 
 async def _async_poll_climate_request(hass: HomeAssistant, api, service_request_id: str, coordinator) -> None:
@@ -138,7 +158,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities,
 ) -> None:
-    """Set up the remote-start button when Nissan reports it as requested."""
+    """Set up the remote engine buttons when Nissan reports the service."""
     runtime = entry.runtime_data
     coordinator = runtime.coordinator
     vehicle = coordinator.data["vehicle"]
@@ -158,9 +178,18 @@ async def async_setup_entry(
     engine = next((item for item in engines if item.get("id")), None)
     is_electric = vehicle.get("engineType") == "Electric" or bool(coordinator.data.get("battery"))
     buttons = [NissanRefreshButton(coordinator, entry)]
+    if any(
+        service.get("vehicleServiceName") == "Remote Vehicle Status"
+        and service.get("serviceRequested") is True
+        for service in services
+    ):
+        buttons.append(NissanRequestVehicleRefreshButton(coordinator, entry, runtime.api))
     if not is_electric and remote_start_requested and engine is not None:
         buttons.append(
             NissanRemoteStartButton(coordinator, entry, runtime.api, engine["id"])
+        )
+        buttons.append(
+            NissanRemoteStopButton(coordinator, entry, runtime.api, engine["id"])
         )
 
     # Climatisation à distance (pour véhicules électriques ou services climatisation)
@@ -233,19 +262,49 @@ class NissanRefreshButton(CoordinatorEntity, ButtonEntity):
         )
 
 
+class NissanRequestVehicleRefreshButton(NissanRefreshButton):
+    """Request a fresh status from the vehicle rather than only the cloud."""
+
+    _attr_translation_key = "request_vehicle_refresh"
+    _attr_icon = "mdi:car-connected"
+
+    def __init__(self, coordinator, entry: ConfigEntry, api) -> None:
+        super().__init__(coordinator, entry)
+        self._api = api
+        self._attr_unique_id = f"{entry.entry_id}_request_vehicle_refresh"
+
+    @guard_command()
+    async def async_press(self) -> None:
+        """Request a vehicle status update and monitor its completion."""
+        try:
+            request_id = await self.hass.async_add_executor_job(self._api.refresh_vehicle_status)
+        except NissanConnectAuthenticationError as err:
+            raise HomeAssistantError(
+                "Nissan access token expired or rejected; reauthenticate the integration"
+            ) from err
+        except NissanConnectCommandError as err:
+            raise HomeAssistantError(f"Nissan vehicle status refresh failed: {err}") from err
+        except requests.RequestException as err:
+            raise HomeAssistantError(f"Nissan vehicle status refresh request failed: {err}") from err
+        self.hass.async_create_task(
+            _async_poll_vehicle_refresh(self.hass, self._api, request_id, self.coordinator)
+        )
+
+
 class NissanRemoteStartButton(CoordinatorEntity, ButtonEntity):
     """Start the vehicle remotely using Nissan's RTS engine endpoint."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "remote_start"
     _attr_icon = "mdi:engine"
+    _engine_action = "start"
 
     def __init__(self, coordinator, entry: ConfigEntry, api, engine_id: str) -> None:
         """Initialize the remote-start button."""
         super().__init__(coordinator)
         self._api = api
         self._engine_id = engine_id
-        self._attr_unique_id = f"{entry.entry_id}_remote_start"
+        self._attr_unique_id = f"{entry.entry_id}_remote_{self._engine_action}"
         vehicle = coordinator.data["vehicle"]
         model = vehicle.get("model")
         year = vehicle.get("year")
@@ -259,11 +318,16 @@ class NissanRemoteStartButton(CoordinatorEntity, ButtonEntity):
 
     @guard_command()
     async def async_press(self) -> None:
-        """Request a remote start and refresh the vehicle state."""
-        _LOGGER.debug("[%s] Remote start button pressed", self._api._label)
+        """Request a remote engine command and refresh the vehicle state."""
+        _LOGGER.debug("[%s] Remote %s button pressed", self._api._label, self._engine_action)
         try:
+            command = (
+                self._api.start_engine
+                if self._engine_action == "start"
+                else self._api.stop_engine
+            )
             await self.hass.async_add_executor_job(
-                self._api.start_engine, self._engine_id
+                command, self._engine_id
             )
             self.hass.async_create_task(
                 _async_poll_engine_request(self.coordinator, self._api._label)
@@ -273,9 +337,17 @@ class NissanRemoteStartButton(CoordinatorEntity, ButtonEntity):
                 "Nissan access token expired or rejected; reauthenticate the integration"
             ) from err
         except NissanConnectCommandError as err:
-            raise HomeAssistantError(f"Nissan remote start failed: {err}") from err
+            raise HomeAssistantError(f"Nissan remote {self._engine_action} failed: {err}") from err
         except Exception as err:
-            raise HomeAssistantError("Nissan remote start request failed") from err
+            raise HomeAssistantError(f"Nissan remote {self._engine_action} request failed") from err
+
+
+class NissanRemoteStopButton(NissanRemoteStartButton):
+    """Stop the vehicle remotely using Nissan's RTS engine endpoint."""
+
+    _attr_translation_key = "remote_stop"
+    _attr_icon = "mdi:engine-off"
+    _engine_action = "stop"
 
 
 class NissanUnlockDoorsButton(CoordinatorEntity, ButtonEntity):
@@ -677,4 +749,3 @@ class NissanFlashLightsHornButton(CoordinatorEntity, ButtonEntity):
             raise HomeAssistantError(f"Nissan horn and lights failed: {err}") from err
         except Exception as err:
             raise HomeAssistantError("Nissan horn and lights request failed") from err
-

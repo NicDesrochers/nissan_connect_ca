@@ -86,6 +86,39 @@
       },
       "due_mileage": {
         "name": "Service due mileage"
+      },
+      "charge_schedules_enabled": {
+        "name": "Active charge schedules"
+      },
+      "climate_schedules_enabled": {
+        "name": "Active climate schedules"
+      },
+      "charge_sessions": {
+        "name": "Charge sessions (latest month)"
+      },
+      "charge_energy": {
+        "name": "Energy charged (latest month)"
+      },
+      "charge_duration": {
+        "name": "Charge duration (latest month)"
+      },
+      "v2l_state": {
+        "name": "V2L state"
+      },
+      "v2l_minimum_charge_level": {
+        "name": "V2L minimum charge level"
+      },
+      "boundary_alerts": {
+        "name": "Active boundary alerts"
+      },
+      "curfew_alerts": {
+        "name": "Active curfew alerts"
+      },
+      "speed_alerts": {
+        "name": "Active speed alerts"
+      },
+      "valet_alert": {
+        "name": "Valet alert"
       }
     },
     "binary_sensor": {
@@ -130,11 +163,17 @@
       "refresh_vehicle": {
         "name": "Refresh vehicle data"
       },
+      "request_vehicle_refresh": {
+        "name": "Request vehicle status update"
+      },
       "refresh_battery": {
         "name": "Refresh battery status"
       },
       "remote_start": {
         "name": "Start engine remotely"
+      },
+      "remote_stop": {
+        "name": "Stop engine remotely"
       },
       "unlock_doors": {
         "name": "Unlock doors"
@@ -159,6 +198,19 @@
       },
       "flash_lights_horn": {
         "name": "Honk horn and flash lights"
+      }
+    },
+    "number": {
+      "charge_limit": {
+        "name": "Charge limit"
+      }
+    },
+    "switch": {
+      "charge_schedule": {
+        "name": "Charge schedule {number}"
+      },
+      "climate_schedule": {
+        "name": "Climate schedule {number}"
       }
     }
   }

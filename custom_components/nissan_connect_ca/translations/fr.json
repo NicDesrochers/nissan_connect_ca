@@ -86,6 +86,39 @@
       },
       "due_mileage": {
         "name": "Prochain entretien"
+      },
+      "charge_schedules_enabled": {
+        "name": "Horaires de recharge actifs"
+      },
+      "climate_schedules_enabled": {
+        "name": "Programmes de climatisation actifs"
+      },
+      "charge_sessions": {
+        "name": "Sessions de recharge (dernier mois)"
+      },
+      "charge_energy": {
+        "name": "Énergie rechargée (dernier mois)"
+      },
+      "charge_duration": {
+        "name": "Durée de recharge (dernier mois)"
+      },
+      "v2l_state": {
+        "name": "État V2L"
+      },
+      "v2l_minimum_charge_level": {
+        "name": "Niveau de charge minimal V2L"
+      },
+      "boundary_alerts": {
+        "name": "Alertes de zone actives"
+      },
+      "curfew_alerts": {
+        "name": "Alertes de couvre-feu actives"
+      },
+      "speed_alerts": {
+        "name": "Alertes de vitesse actives"
+      },
+      "valet_alert": {
+        "name": "Alerte voiturier"
       }
     },
     "binary_sensor": {
@@ -130,11 +163,17 @@
       "refresh_vehicle": {
         "name": "Actualiser les données du véhicule"
       },
+      "request_vehicle_refresh": {
+        "name": "Demander une mise à jour de l'état du véhicule"
+      },
       "refresh_battery": {
         "name": "Actualiser l'état de la batterie"
       },
       "remote_start": {
         "name": "Démarrer le moteur à distance"
+      },
+      "remote_stop": {
+        "name": "Arrêter le moteur à distance"
       },
       "unlock_doors": {
         "name": "Déverrouiller les portes"
@@ -159,6 +198,19 @@
       },
       "flash_lights_horn": {
         "name": "Avertisseur sonore et phares"
+      }
+    },
+    "number": {
+      "charge_limit": {
+        "name": "Limite de recharge"
+      }
+    },
+    "switch": {
+      "charge_schedule": {
+        "name": "Horaire de recharge {number}"
+      },
+      "climate_schedule": {
+        "name": "Programme de climatisation {number}"
       }
     }
   }

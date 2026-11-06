@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
+    UnitOfEnergy,
     UnitOfLength,
     UnitOfPressure,
     UnitOfTemperature,
@@ -27,6 +28,104 @@ TYRE_POSITION_KEYS = {
     "REAR_LEFT": "tyre_pressure_rear_left",
     "REAR_RIGHT": "tyre_pressure_rear_right",
 }
+GRAPHQL_TYRE_FIELDS = {
+    "FRONT_LEFT": ("flPressure", "flStatus"),
+    "FRONT_RIGHT": ("frPressure", "frStatus"),
+    "REAR_LEFT": ("rlPressure", "rlStatus"),
+    "REAR_RIGHT": ("rrPressure", "rrStatus"),
+}
+
+
+def _tyre_data(snapshot, position):
+    """Prefer GraphQL PSI values and fall back to legacy RTS measurements."""
+    pressure_field, status_field = GRAPHQL_TYRE_FIELDS[position]
+    pressure = snapshot.get("tirePressure") or {}
+    if pressure.get(pressure_field) is not None:
+        return {
+            "value": pressure[pressure_field],
+            "status": pressure.get(status_field),
+            "UoM": "PSI",
+            "lastUpdatedAt": pressure.get("lastUpdatedAt"),
+        }
+    return next(
+        (tyre for tyre in snapshot.get("health", {}).get("tyres", [])
+         if tyre.get("position") == position and tyre.get("value") is not None),
+        None,
+    )
+
+
+def _latest_charge_summary(snapshot):
+    summaries = (snapshot.get("extra", {}).get("chargeHistory") or {}).get("chargeSummaries") or []
+    summaries = [item for item in summaries if item.get("year") and item.get("month")]
+    return max(summaries, key=lambda item: (item["year"], item["month"]), default=None)
+
+
+def _count_schedules(kind):
+    def getter(snapshot):
+        schedules = snapshot.get("extra", {}).get(kind)
+        if schedules is None:
+            return None
+        return sum(1 for item in schedules if item.get("state") == "ON")
+    return getter
+
+
+def _schedule_attributes(kind):
+    def getter(snapshot):
+        return {"schedules": [
+            {k: item.get(k) for k in ("id", "state", "startDateTime", "duration", "weekDays")
+             if item.get(k) is not None}
+            for item in snapshot.get("extra", {}).get(kind) or []
+        ]}
+    return getter
+
+
+def _summary_value(field):
+    def getter(snapshot):
+        summary = _latest_charge_summary(snapshot)
+        return summary.get(field) if summary else None
+    return getter
+
+
+def _summary_attributes(snapshot):
+    summary = _latest_charge_summary(snapshot)
+    return {"month": summary["month"], "year": summary["year"]} if summary else None
+
+
+def _alert_count(field):
+    def getter(snapshot):
+        alerts = snapshot.get("extra", {}).get("alerts")
+        if alerts is None or field not in alerts:
+            return None
+        value = alerts[field]
+        if field == "valetAlert":
+            return 1 if value else 0
+        return sum(1 for item in value or [] if item.get("enabled"))
+    return getter
+
+
+def _v2l(field):
+    return lambda snapshot: (snapshot.get("extra", {}).get("v2lStatus") or {}).get(field)
+
+
+def _has_schedules(kind):
+    return lambda snapshot: bool(snapshot.get("extra", {}).get(kind))
+
+
+# key: (value getter, availability getter, device class, state class, unit, attributes getter, icon)
+EXTRA_SENSORS = {
+    "charge_schedules_enabled": (_count_schedules("chargeSchedules"), _has_schedules("chargeSchedules"), None, None, None, _schedule_attributes("chargeSchedules"), "mdi:battery-clock"),
+    "climate_schedules_enabled": (_count_schedules("climateSchedules"), _has_schedules("climateSchedules"), None, None, None, _schedule_attributes("climateSchedules"), "mdi:calendar-clock"),
+    "charge_sessions": (_summary_value("numberOfChargeSessions"), lambda s: _latest_charge_summary(s) is not None, None, SensorStateClass.MEASUREMENT, None, _summary_attributes, "mdi:ev-station"),
+    "charge_energy": (_summary_value("totalEnergyRecovered"), lambda s: _latest_charge_summary(s) is not None, SensorDeviceClass.ENERGY, None, UnitOfEnergy.KILO_WATT_HOUR, _summary_attributes, None),
+    "charge_duration": (_summary_value("totalDuration"), lambda s: _latest_charge_summary(s) is not None, SensorDeviceClass.DURATION, SensorStateClass.MEASUREMENT, UnitOfTime.MINUTES, _summary_attributes, None),
+    "v2l_state": (_v2l("state"), lambda s: _v2l("state")(s) is not None, None, None, None, None, "mdi:power-plug-battery"),
+    "v2l_minimum_charge_level": (_v2l("chargeLimitationLevel"), lambda s: _v2l("chargeLimitationLevel")(s) is not None, SensorDeviceClass.BATTERY, SensorStateClass.MEASUREMENT, PERCENTAGE, None, None),
+    "boundary_alerts": (_alert_count("boundaryAlerts"), lambda s: "boundaryAlerts" in (s.get("extra", {}).get("alerts") or {}), None, SensorStateClass.MEASUREMENT, None, None, "mdi:map-marker-radius"),
+    "curfew_alerts": (_alert_count("curfewAlerts"), lambda s: "curfewAlerts" in (s.get("extra", {}).get("alerts") or {}), None, SensorStateClass.MEASUREMENT, None, None, "mdi:clock-alert"),
+    "speed_alerts": (_alert_count("speedAlerts"), lambda s: "speedAlerts" in (s.get("extra", {}).get("alerts") or {}), None, SensorStateClass.MEASUREMENT, None, None, "mdi:speedometer"),
+    "valet_alert": (_alert_count("valetAlert"), lambda s: "valetAlert" in (s.get("extra", {}).get("alerts") or {}), None, None, None, None, "mdi:account-key"),
+}
+DIAGNOSTIC_EXTRA = {"charge_schedules_enabled", "climate_schedules_enabled", "v2l_state", "v2l_minimum_charge_level", "boundary_alerts", "curfew_alerts", "speed_alerts", "valet_alert"}
 
 
 async def async_setup_entry(
@@ -62,15 +161,36 @@ async def async_setup_entry(
     if due_mileage is not None:
         keys.append("due_mileage")
 
-    keys.extend(
-        key
-        for tyre in coordinator.data.get("health", {}).get("tyres", [])
-        if (key := TYRE_POSITION_KEYS.get(tyre.get("position")))
-        and tyre.get("value") is not None
-    )
+    tire_keys = {
+        key for position, key in TYRE_POSITION_KEYS.items()
+        if _tyre_data(coordinator.data or {}, position) is not None
+    }
+    keys.extend(tire_keys)
     async_add_entities(
         [NissanVehicleSensor(coordinator, entry, key) for key in keys]
     )
+    extra_keys = set()
+
+    def async_add_extra():
+        data = coordinator.data or {}
+        new = [k for k, spec in EXTRA_SENSORS.items() if k not in extra_keys and spec[1](data)]
+        if new:
+            extra_keys.update(new)
+            async_add_entities([NissanExtraSensor(coordinator, entry, key) for key in new])
+
+    async_add_extra()
+    entry.async_on_unload(coordinator.async_add_listener(async_add_extra))
+
+    def async_add_new_tires():
+        new_keys = [
+            key for position, key in TYRE_POSITION_KEYS.items()
+            if key not in tire_keys and _tyre_data(coordinator.data or {}, position) is not None
+        ]
+        if new_keys:
+            tire_keys.update(new_keys)
+            async_add_entities([NissanVehicleSensor(coordinator, entry, key) for key in new_keys])
+
+    entry.async_on_unload(coordinator.async_add_listener(async_add_new_tires))
 
 
 class NissanVehicleSensor(CoordinatorEntity, SensorEntity):
@@ -160,14 +280,7 @@ class NissanVehicleSensor(CoordinatorEntity, SensorEntity):
                 for pos, key in TYRE_POSITION_KEYS.items()
                 if key == self._key
             )
-            tyre = next(
-                (
-                    item
-                    for item in snapshot.get("health", {}).get("tyres", [])
-                    if item.get("position") == position
-                ),
-                None,
-            )
+            tyre = _tyre_data(snapshot, position)
             if tyre is None:
                 return None
             try:
@@ -207,14 +320,7 @@ class NissanVehicleSensor(CoordinatorEntity, SensorEntity):
                 for pos, key in TYRE_POSITION_KEYS.items()
                 if key == self._key
             )
-            tyre = next(
-                (
-                    item
-                    for item in snapshot.get("health", {}).get("tyres", [])
-                    if item.get("position") == position
-                ),
-                None,
-            )
+            tyre = _tyre_data(snapshot, position)
             if tyre is None:
                 return None
             return {
@@ -234,12 +340,32 @@ class NissanVehicleSensor(CoordinatorEntity, SensorEntity):
             for pos, key in TYRE_POSITION_KEYS.items()
             if key == self._key
         )
-        tyre = next(
-            (
-                item
-                for item in (self.coordinator.data or {}).get("health", {}).get("tyres", [])
-                if item.get("position") == position
-            ),
-            None,
-        )
+        tyre = _tyre_data(self.coordinator.data or {}, position)
         return {"status": tyre.get("status")} if tyre else None
+
+
+class NissanExtraSensor(NissanVehicleSensor):
+    """Sensors backed by the optional GraphQL data."""
+
+    def __init__(self, coordinator, entry: ConfigEntry, key: str) -> None:
+        super().__init__(coordinator, entry, key)
+        _, _, device_class, state_class, unit, _, icon = EXTRA_SENSORS[key]
+        self._attr_device_class = device_class
+        self._attr_state_class = state_class
+        self._attr_native_unit_of_measurement = unit
+        self._attr_icon = icon
+        if key in DIAGNOSTIC_EXTRA:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def native_value(self):
+        return EXTRA_SENSORS[self._key][0](self.coordinator.data or {})
+
+    @property
+    def native_unit_of_measurement(self):
+        return self._attr_native_unit_of_measurement
+
+    @property
+    def extra_state_attributes(self):
+        getter = EXTRA_SENSORS[self._key][5]
+        return getter(self.coordinator.data or {}) if getter else None

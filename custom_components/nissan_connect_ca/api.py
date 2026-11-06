@@ -516,6 +516,8 @@ class NissanConnectCAAPI:
         battery_data = self._last_snapshot.get("battery", {})
         climate_data = self._last_snapshot.get("climate", {})
         climate_defaults = self._last_snapshot.get("climateDefaults", {})
+        tire_pressure = self._last_snapshot.get("tirePressure")
+        extra_data = self._last_snapshot.get("extra", {})
 
         if (
             vehicle_info.get("engineType") in ("Electric", "EV")
@@ -530,8 +532,17 @@ class NissanConnectCAAPI:
                     climate_data = dynamic_data["climateStatus"]
                 if dynamic_data.get("climateDefaults"):
                     climate_defaults = dynamic_data["climateDefaults"]
+                if "tirePressure" in dynamic_data:
+                    tire_pressure = dynamic_data["tirePressure"]
             except Exception as err:
                 _LOGGER.warning("[%s] Could not fetch EV dynamic data via GraphQL: %s", self._label, err)
+
+        try:
+            fetched_extra = self.get_extra_vehicle_data()
+            if fetched_extra:
+                extra_data = {**extra_data, **fetched_extra}
+        except Exception as err:
+            _LOGGER.debug("[%s] Optional GraphQL data unavailable: %s", self._label, err)
 
         snapshot = {
             "vehicle": vehicle_info,
@@ -543,6 +554,10 @@ class NissanConnectCAAPI:
         }
         if climate_defaults:
             snapshot["climateDefaults"] = climate_defaults
+        if tire_pressure is not None:
+            snapshot["tirePressure"] = tire_pressure
+        if extra_data:
+            snapshot["extra"] = extra_data
 
         self._last_snapshot = snapshot
 
@@ -581,12 +596,21 @@ class NissanConnectCAAPI:
     @synchronized_account
     def start_engine(self, engine_id):
         """Request a remote engine start for the configured vehicle."""
+        self._set_engine_state(engine_id, "START")
+
+    @synchronized_account
+    def stop_engine(self, engine_id):
+        """Request a remote engine stop for the configured vehicle."""
+        self._set_engine_state(engine_id, "STOP")
+
+    def _set_engine_state(self, engine_id, state):
+        """Send an engine state command using Nissan's RTS endpoint."""
         if not self.vehicle_id:
             raise ValueError("Vehicle ID is missing")
         response = self._session.put(
             VEHICLE_ENGINES_URL.format(vehicle_id=self.vehicle_id),
             headers=self.get_headers(),
-            json={"engine": {"id": engine_id, "state": "START"}},
+            json={"engine": {"id": engine_id, "state": state}},
             timeout=20,
         )
         self._raise_for_command_response(response, "Nissan engine service")
@@ -694,18 +718,122 @@ class NissanConnectCAAPI:
             return {}
         query = (
             "query VehicleDynamicData($vin: String!, $unit: DistanceUnit, $temperatureUnit: TemperatureUnitEnumType) { "
-            "vehicle(vin: $vin) { __typename ... on BaseElectricVehicle { "
+            "vehicle(vin: $vin) { __typename {tire_fragment} "
+            "... on BaseElectricVehicle { "
             "batteryStatus { __typename level isPluggedIn isCharging remainingChargeTime remainingMileage(unit: $unit) { unit value } } "
             "climateStatus { __typename state temperature(unit: $temperatureUnit) { value unit } } } "
             "... on ElectricVehicle { climateDefaults { __typename climate(unit: $temperatureUnit) { value unit } } } "
             "... on BaseAVK2Vehicle { climateDefaults { __typename climate(unit: $temperatureUnit) { value unit } } } } }"
         )
-        data = self._post_graphql(
-            "VehicleDynamicData",
-            query,
-            {"vin": vin, "unit": "KILOMETER", "temperatureUnit": "CELSIUS"},
+        tire_fragment = (
+            "... on BaseAVKVehicle { tirePressure { lastUpdatedAt flPressure frPressure "
+            "rlPressure rrPressure flStatus frStatus rlStatus rrStatus } }"
         )
+        variables = {"vin": vin, "unit": "KILOMETER", "temperatureUnit": "CELSIUS"}
+        # Some vehicle backends may not implement the application's tire fragment.
+        try:
+            data = self._post_graphql(
+                "VehicleDynamicData", query.replace("{tire_fragment}", tire_fragment), variables
+            )
+        except NissanConnectCommandError as err:
+            message = str(err).lower()
+            if not (
+                message.startswith("nissan graphql error:")
+                and ("tirepressure" in message or "baseavkvehicle" in message)
+                and any(term in message for term in ("cannot query", "unknown", "undefined", "validation"))
+            ):
+                raise
+            _LOGGER.warning("[%s] GraphQL tire data unavailable, retrying basic EV data: %s", self._label, err)
+            data = self._post_graphql(
+                "VehicleDynamicData", query.replace("{tire_fragment}", ""), variables
+            )
         return data.get("vehicle", {})
+
+    @synchronized_account
+    def get_extra_vehicle_data(self):
+        """Fetch optional GraphQL data; each feature fails independently."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            return {}
+        queries = {
+            "chargeSchedules": (
+                "VehicleChargeSchedules",
+                "query VehicleChargeSchedules($vin: String!) { vehicle(vin: $vin) { __typename "
+                "... on BaseElectricVehicle { chargeSchedules { __typename id state startDateTime duration weekDays } } } }",
+                {"vin": vin},
+            ),
+            "climateSchedules": (
+                "VehicleClimateSchedules",
+                "query VehicleClimateSchedules($vin: String!, $temperatureUnit: TemperatureUnitEnumType!) { "
+                "vehicle(vin: $vin) { __typename ... on BaseElectricVehicle { climateSchedules { __typename id state "
+                "startDateTime weekDays temperature(unit: $temperatureUnit) { __typename value unit } } } } }",
+                {"vin": vin, "temperatureUnit": "CELSIUS"},
+            ),
+            "chargeHistory": (
+                "VehicleChargeHistory",
+                "query VehicleChargeHistory($vin: String!, $aggregator: ChargeHistoryAggregator!) { vehicle(vin: $vin) { "
+                "__typename ... on BaseElectricVehicle { chargeHistory(aggregator: $aggregator) { __typename "
+                "chargeSummaries { __typename day month year numberOfChargeSessions totalEnergyRecovered totalDuration numberOfErrors } } } } }",
+                {"vin": vin, "aggregator": "MONTHLY"},
+            ),
+            "chargeConfig": (
+                "ChargeConfig",
+                "query ChargeConfig($vin: String!) { vehicle(vin: $vin) { __typename ... on BaseElectric2Vehicle { "
+                "chargeConfig { __typename limits { __typename notification { __typename percent } charge { __typename percent } } } } } }",
+                {"vin": vin},
+            ),
+            "v2lStatus": (
+                "V2lStatus",
+                "query V2lStatus($vin: String!) { vehicle(vin: $vin) { __typename ... on BaseElectric2Vehicle { "
+                "v2lStatus { __typename state chargeLimitationLevel chargeMinimumLimitationLevel } } } }",
+                {"vin": vin},
+            ),
+            "alerts": (
+                "VehicleAlerts",
+                "query VehicleAlerts($vin: String!, $speedUnit: SpeedUnit) { vehicle(vin: $vin) { __typename "
+                "... on BaseConnectedVehicle { boundaryAlerts { __typename enabled } curfewAlerts { __typename enabled } "
+                "speedAlerts(speedUnit: $speedUnit) { __typename enabled } valetAlert { __typename serviceRequestId } } } }",
+                {"vin": vin, "speedUnit": "KPH"},
+            ),
+        }
+        extra = {}
+        for key, (name, query, variables) in queries.items():
+            try:
+                vehicle = self._post_graphql(name, query, variables).get("vehicle") or {}
+            except Exception as err:
+                _LOGGER.debug("[%s] Optional GraphQL data %s unavailable: %s", self._label, key, err)
+                continue
+            if key in vehicle and vehicle[key] is not None:
+                extra[key] = vehicle[key]
+            elif key == "alerts" and any(k in vehicle for k in ("boundaryAlerts", "curfewAlerts", "speedAlerts", "valetAlert")):
+                extra[key] = {k: vehicle.get(k) for k in ("boundaryAlerts", "curfewAlerts", "speedAlerts", "valetAlert")}
+        return extra
+
+    @synchronized_account
+    def set_charge_limit(self, percent):
+        """Set the target charge limit through GraphQL."""
+        vin = self.vin or self.vehicle_id
+        query = (
+            "mutation SetChargeLimit($vin: String!, $percent: Int!) { "
+            "setChargeLimit(vin: $vin, percent: $percent) { __typename serviceRequestId } }"
+        )
+        data = self._post_graphql("SetChargeLimit", query, {"vin": vin, "percent": int(percent)})
+        return (data.get("setChargeLimit") or {}).get("serviceRequestId")
+
+    @synchronized_account
+    def toggle_schedule(self, kind, schedule_id, enable):
+        """Enable or disable a charge or climate schedule."""
+        vin = self.vin or self.vehicle_id
+        if kind not in ("charge", "climate"):
+            raise ValueError("Unsupported schedule kind")
+        name = "Toggle%sSchedule" % kind.capitalize()
+        field = "toggle%sSchedule" % kind.capitalize()
+        query = (
+            "mutation %s($vin: String!, $schedule: %sInput!) { %s(vin: $vin, schedule: $schedule) "
+            "{ __typename serviceRequestId } }" % (name, name, field)
+        )
+        data = self._post_graphql(name, query, {"vin": vin, "schedule": {"id": schedule_id, "enable": bool(enable)}})
+        return (data.get(field) or {}).get("serviceRequestId")
 
     def clone_for_vehicle(self, vehicle_id, vin=None, vehicle_name=None):
         """Retourne un client API pour un autre véhicule partageant la session et les jetons."""
@@ -910,6 +1038,39 @@ class NissanConnectCAAPI:
         return result.get("success")
 
     @synchronized_account
+    def refresh_vehicle_status(self):
+        """Ask Nissan to refresh the vehicle's remote status."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation RefreshVehicleStatus($vin: String!) { "
+            "refreshVehicleStatus(vin: $vin) { __typename serviceRequestId } }"
+        )
+        data = self._post_graphql("RefreshVehicleStatus", query, {"vin": vin})
+        request_id = (data.get("refreshVehicleStatus") or {}).get("serviceRequestId")
+        if not request_id:
+            raise NissanConnectCommandError("Vehicle status refresh returned no request ID")
+        return request_id
+
+    @synchronized_account
+    def check_refresh_vehicle_status(self, request_id):
+        """Check the status of a vehicle status refresh request."""
+        vin = self.vin or self.vehicle_id
+        if not vin:
+            raise ValueError("Vehicle ID or VIN is missing")
+        query = (
+            "mutation CheckRefreshVehicleStatusRequest($vin: String!, $serviceRequestId: String!) { "
+            "checkRefreshVehicleStatusRequest(vin: $vin, serviceRequestId: $serviceRequestId) "
+            "{ __typename status } }"
+        )
+        data = self._post_graphql(
+            "CheckRefreshVehicleStatusRequest", query,
+            {"vin": vin, "serviceRequestId": request_id},
+        )
+        return data.get("checkRefreshVehicleStatusRequest") or {}
+
+    @synchronized_account
     def flash_lights(self):
         """Fait clignoter les phares du véhicule à distance."""
         vin = self.vin or self.vehicle_id
@@ -960,5 +1121,3 @@ class NissanConnectCAAPI:
         }
         data = self._post_graphql("CheckHornLightServiceRequest", query, variables)
         return data.get("checkHornLightServiceRequest", {})
-
-

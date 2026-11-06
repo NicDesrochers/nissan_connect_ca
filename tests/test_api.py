@@ -1,11 +1,59 @@
 """Tests du client API (sans réseau)."""
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from custom_components.nissan_connect_ca.api import NissanConnectCAAPI
+import pytest
+import requests
+
+from custom_components.nissan_connect_ca.api import (
+    NissanConnectAuthenticationError,
+    NissanConnectCAAPI,
+    NissanConnectCommandError,
+)
+from custom_components.nissan_connect_ca.const import VEHICLE_ENGINES_URL
 
 
 def _api():
     return NissanConnectCAAPI("u", "p", vehicle_id="vid", vin="VIN123")
+
+
+@pytest.mark.parametrize(("method", "state"), [("start_engine", "START"), ("stop_engine", "STOP")])
+def test_engine_command_payload(method, state):
+    api = _api()
+    response = Mock(status_code=202, text="")
+    with patch.object(api, "get_headers", return_value={"Authorization": "token"}), \
+         patch.object(api._session, "put", return_value=response) as put:
+        getattr(api, method)("engine-id")
+    put.assert_called_once_with(
+        VEHICLE_ENGINES_URL.format(vehicle_id="vid"),
+        headers={"Authorization": "token"},
+        json={"engine": {"id": "engine-id", "state": state}},
+        timeout=20,
+    )
+    response.raise_for_status.assert_called_once()
+
+
+@pytest.mark.parametrize("status, error", [
+    (401, NissanConnectAuthenticationError),
+    (500, NissanConnectCommandError),
+    (200, NissanConnectCommandError),
+])
+def test_stop_engine_rejects_unsuccessful_responses(status, error):
+    api = _api()
+    response = Mock(status_code=status, text="")
+    if status >= 400:
+        response.raise_for_status.side_effect = requests.HTTPError(response=response)
+    with patch.object(api, "get_headers", return_value={}), \
+         patch.object(api._session, "put", return_value=response), \
+         pytest.raises(error):
+        api.stop_engine("engine-id")
+
+
+def test_stop_engine_requires_vehicle_id():
+    api = _api()
+    api.vehicle_id = None
+    with patch.object(api._session, "put") as put, pytest.raises(ValueError):
+        api.stop_engine("engine-id")
+    put.assert_not_called()
 
 
 def test_set_tokens_updates_client():
@@ -49,6 +97,76 @@ def test_start_climate_does_not_set_default():
     ) as post:
         assert api.start_climate(21) == "abc"
     assert "setAsDefault" not in post.call_args.args[2]
+
+
+def test_dynamic_data_requests_tire_pressure_in_existing_query():
+    api = _api()
+    data = {"vehicle": {"tirePressure": {"flPressure": 35}}}
+    with patch.object(api, "_post_graphql", return_value=data) as post:
+        assert api.get_dynamic_vehicle_data() == data["vehicle"]
+    query = post.call_args.args[1]
+    assert "... on BaseAVKVehicle" in query
+    assert "flPressure frPressure rlPressure rrPressure" in query
+    assert "batteryStatus" in query
+    assert post.call_count == 1
+
+
+def test_dynamic_data_falls_back_if_tire_fragment_is_rejected():
+    api = _api()
+    with patch.object(api, "_post_graphql", side_effect=[
+        NissanConnectCommandError("Nissan GraphQL error: Cannot query field tirePressure"),
+        {"vehicle": {"batteryStatus": {"level": 80}}},
+    ]) as post:
+        assert api.get_dynamic_vehicle_data()["batteryStatus"]["level"] == 80
+    assert post.call_count == 2
+    assert "tirePressure" in post.call_args_list[0].args[1]
+    assert "tirePressure" not in post.call_args_list[1].args[1]
+
+
+def test_dynamic_data_does_not_retry_other_errors():
+    api = _api()
+    with patch.object(
+        api, "_post_graphql", side_effect=NissanConnectCommandError("GraphQL returned HTTP 500")
+    ) as post, pytest.raises(NissanConnectCommandError):
+        api.get_dynamic_vehicle_data()
+    assert post.call_count == 1
+
+
+def test_snapshot_retains_graphql_tire_pressure():
+    api = _api()
+    def get_json(url, *, require_id_token=False):
+        if "/health" in url:
+            return {}
+        if "/engines" in url:
+            return {"engines": []}
+        if "/locations" in url:
+            return {}
+        return {"vin": "VIN123", "model": "LEAF", "engineType": "Electric"}
+
+    with patch.object(api, "_get_json", side_effect=get_json), \
+         patch.object(api, "get_dynamic_vehicle_data", return_value={
+             "tirePressure": {"flPressure": 35}
+         }):
+        assert api.get_vehicle_snapshot()["tirePressure"]["flPressure"] == 35
+
+
+def test_refresh_vehicle_status_and_check():
+    api = _api()
+    with patch.object(api, "_post_graphql", side_effect=[
+        {"refreshVehicleStatus": {"serviceRequestId": "request-id"}},
+        {"checkRefreshVehicleStatusRequest": {"status": "SUCCESS"}},
+    ]) as post:
+        request_id = api.refresh_vehicle_status()
+        assert api.check_refresh_vehicle_status(request_id) == {"status": "SUCCESS"}
+    assert post.call_args_list[0].args[0] == "RefreshVehicleStatus"
+    assert post.call_args_list[1].args[2] == {"vin": "VIN123", "serviceRequestId": "request-id"}
+
+
+def test_refresh_vehicle_status_missing_request_id_is_an_error():
+    api = _api()
+    with patch.object(api, "_post_graphql", return_value={"refreshVehicleStatus": {}}), \
+         pytest.raises(NissanConnectCommandError, match="no request ID"):
+        api.refresh_vehicle_status()
 
 
 def test_post_graphql_success():
@@ -177,3 +295,29 @@ def test_get_vehicle_snapshot_health_500_resilience():
         assert snap2["battery"]["level"] == 84
 
 
+def test_toggle_schedule_and_charge_limit_use_graphql_inputs():
+    api = _api()
+    with patch.object(api, "_post_graphql", return_value={"toggleClimateSchedule": {"serviceRequestId": "r1"}}) as post:
+        assert api.toggle_schedule("climate", "7", True) == "r1"
+    name, query, variables = post.call_args.args
+    assert name == "ToggleClimateSchedule"
+    assert "ToggleClimateScheduleInput" in query
+    assert variables["schedule"] == {"id": "7", "enable": True}
+    with patch.object(api, "_post_graphql", return_value={"setChargeLimit": {"serviceRequestId": "r2"}}) as post:
+        assert api.set_charge_limit(80) == "r2"
+    assert post.call_args.args[2]["percent"] == 80
+
+
+def test_extra_vehicle_data_tolerates_failing_queries():
+    api = _api()
+
+    def fake(name, query, variables):
+        if name == "V2lStatus":
+            raise NissanConnectCommandError("boom")
+        if name == "ChargeConfig":
+            return {"vehicle": {"chargeConfig": {"limits": {"charge": {"percent": 80}}}}}
+        return {"vehicle": {}}
+
+    with patch.object(api, "_post_graphql", side_effect=fake):
+        extra = api.get_extra_vehicle_data()
+    assert extra == {"chargeConfig": {"limits": {"charge": {"percent": 80}}}}
