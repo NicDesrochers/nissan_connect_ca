@@ -72,7 +72,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "climate"
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TURN_ON
@@ -138,7 +138,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         super()._handle_coordinator_update()
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return the current interior temperature."""
         temp = (self.coordinator.data or {}).get("climate", {}).get("temperature", {}).get("value")
         try:
@@ -147,7 +147,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return None
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         if self._target_temperature is not None:
             return self._target_temperature
@@ -214,7 +214,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             except Exception as err:
                 raise HomeAssistantError(f"Failed to stop climate: {err}") from err
         else:
-            target = self.target_temperature or DEFAULT_TARGET_TEMPERATURE
+            target = self.native_target_temperature or DEFAULT_TARGET_TEMPERATURE
             _LOGGER.debug("[%s] Starting vehicle climate at %s °C", self._vehicle_name, target)
             try:
                 req_id = await self.hass.async_add_executor_job(
