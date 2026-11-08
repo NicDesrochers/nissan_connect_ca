@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import NissanConnectAuthenticationError, NissanConnectCommandError
 from .command_guard import guard_command
+from .command_refresh import async_poll_schedule
 from .const import DOMAIN
 
 PARALLEL_UPDATES = 1
@@ -92,7 +93,10 @@ class NissanScheduleSwitch(CoordinatorEntity, SwitchEntity):
             raise HomeAssistantError("Nissan access token expired or rejected; reauthenticate the integration") from err
         except (NissanConnectCommandError, requests.RequestException) as err:
             raise HomeAssistantError(f"Nissan schedule update failed: {err}") from err
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh()
+        self.hass.async_create_task(
+            async_poll_schedule(self.coordinator, self._key, self._schedule_id, enable)
+        )
 
     @guard_command(cooldown=2.0)
     async def async_turn_on(self, **kwargs) -> None:

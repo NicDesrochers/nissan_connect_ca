@@ -203,6 +203,9 @@
     "number": {
       "charge_limit": {
         "name": "Charge limit"
+      },
+      "v2l_minimum_charge_level": {
+        "name": "V2L minimum charge level"
       }
     },
     "switch": {

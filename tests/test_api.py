@@ -308,6 +308,29 @@ def test_toggle_schedule_and_charge_limit_use_graphql_inputs():
     assert post.call_args.args[2]["percent"] == 80
 
 
+def test_v2l_and_configuration_tracking_graphql_inputs():
+    api = _api()
+    with patch.object(api, "_post_graphql", return_value={"setV2L": {"serviceRequestId": "id"}}) as post:
+        assert api.set_v2l_minimum_charge_level(95) == "id"
+    assert post.call_args.args[2]["input"] == {"minimumBatteryChargeLevel": 95}
+    for kind, name, field in (
+        ("v2l", "CheckV2LServiceRequest", "checkV2LServiceRequest"),
+        ("charge", "CheckChargeConfigServiceRequest", "checkChargeConfigServiceRequest"),
+    ):
+        with patch.object(api, "_post_graphql", return_value={field: {"status": "SUCCESS"}}) as post:
+            assert api.check_configuration_request(kind, "id") == {"status": "SUCCESS"}
+        assert post.call_args.args[0] == name
+        assert post.call_args.args[2]["serviceRequestId"] == "id"
+
+
+@pytest.mark.parametrize("value", [9, 11, 96, 100, 12.5, True])
+def test_v2l_rejects_out_of_range_or_invalid_increment(value):
+    api = _api()
+    with patch.object(api, "_post_graphql") as post, pytest.raises(ValueError):
+        api.set_v2l_minimum_charge_level(value)
+    post.assert_not_called()
+
+
 def test_extra_vehicle_data_tolerates_failing_queries():
     api = _api()
 

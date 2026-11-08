@@ -212,7 +212,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if self.hvac_mode != HVACMode.OFF:
             await self.async_set_hvac_mode(HVACMode.HEAT_COOL)
         else:
-            self.async_write_ha_state()
+            await self.coordinator.async_refresh()
 
     @guard_command(cooldown=0)
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:

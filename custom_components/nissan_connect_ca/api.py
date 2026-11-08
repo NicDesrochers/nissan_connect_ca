@@ -821,6 +821,40 @@ class NissanConnectCAAPI:
         return (data.get("setChargeLimit") or {}).get("serviceRequestId")
 
     @synchronized_account
+    def set_v2l_minimum_charge_level(self, percent):
+        """Set the minimum battery level reserved when using V2L."""
+        if not isinstance(percent, int) or isinstance(percent, bool) or not 10 <= percent <= 95 or percent % 5:
+            raise ValueError("V2L minimum charge level must be from 10 to 95 in steps of 5")
+        query = (
+            "mutation SetV2L($vin: String!, $input: SetV2LInput!) { "
+            "setV2L(vin: $vin, input: $input) { __typename serviceRequestId } }"
+        )
+        data = self._post_graphql(
+            "SetV2L", query,
+            {"vin": self.vin or self.vehicle_id, "input": {"minimumBatteryChargeLevel": percent}},
+        )
+        return (data.get("setV2L") or {}).get("serviceRequestId")
+
+    @synchronized_account
+    def check_configuration_request(self, kind, request_id):
+        """Check the status of a charge limit or V2L change."""
+        operations = {
+            "charge": ("CheckChargeConfigServiceRequest", "checkChargeConfigServiceRequest"),
+            "v2l": ("CheckV2LServiceRequest", "checkV2LServiceRequest"),
+        }
+        if kind not in operations:
+            raise ValueError("Unsupported configuration request")
+        name, field = operations[kind]
+        query = (
+            f"mutation {name}($vin: String!, $serviceRequestId: String!) {{ "
+            f"{field}(vin: $vin, serviceRequestId: $serviceRequestId) {{ __typename status }} }}"
+        )
+        data = self._post_graphql(
+            name, query, {"vin": self.vin or self.vehicle_id, "serviceRequestId": request_id}
+        )
+        return data.get(field) or {}
+
+    @synchronized_account
     def toggle_schedule(self, kind, schedule_id, enable):
         """Enable or disable a charge or climate schedule."""
         vin = self.vin or self.vehicle_id

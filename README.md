@@ -46,7 +46,8 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
 * **Diagnostics & Health Indicators**:
   * **Schedules (EV)**: One diagnostic count sensor and one configuration switch per charge/climate schedule reported by Nissan (the switch enables or disables the schedule).
   * **Charge limit (EV, BaseElectric2)**: A `number` entity reads and sets the target charge limit (50–100 %, steps of 10).
-  * **Charge history and V2L (EV)**: Sensors for the latest month's charge sessions, energy and duration, plus V2L state and minimum level, created only when Nissan returns data.
+  * **Charge history and V2L (EV)**: Sensors for the latest month's charge sessions, energy and duration, plus V2L state and minimum level, created only when Nissan returns data. When available, a V2L slider sets the minimum level from 10% to 95% in 5% increments.
+  * **Configuration refresh**: Changing a charge limit, V2L limit or schedule refreshes the vehicle data; the integration also follows the request or polls the schedule until the change is reported.
   * **Alerts**: Diagnostic counters for enabled boundary, curfew and speed alerts, and the valet alert status (read-only; locations are not exposed).
   * **Tire pressures**: Read GraphQL tire pressures in PSI when available, falling back to RTS pressure values and units. Tire sensors are added when readings first become available; availability depends on the vehicle and Nissan backend.
   * **Last Communication** (`sensor.*_last_communication`): Timestamp when the car last uploaded telemetry to Nissan.
