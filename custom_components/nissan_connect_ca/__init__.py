@@ -87,7 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
 
     # Reuse existing API session for the same account to avoid duplicate logins
     if username and username in accounts:
-        _LOGGER.debug("[%s] Reusing existing Nissan API session for account %s", entry.title, username)
+        _LOGGER.debug("[%s] Reusing existing Nissan API session", entry.title)
         shared_account = accounts[username]
         parent_api = shared_account["api"]
         api = parent_api.clone_for_vehicle(
@@ -96,7 +96,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NissanConfigEntry) -> bo
         shared_account["entries"].add(entry.entry_id)
         shared_account.setdefault("clients", set()).add(api)
     else:
-        _LOGGER.debug("[%s] Initializing Nissan API session for account %s", entry.title, username)
+        _LOGGER.debug("[%s] Initializing Nissan API session", entry.title)
         api = NissanConnectCAAPI(
             username="",
             password="",
