@@ -48,66 +48,34 @@ async def test_setting_temperature_while_off_refreshes_vehicle_data():
     entity.async_write_ha_state.assert_called_once()
 
 
-async def test_setting_temperature_while_running_uses_sync_then_start():
+@pytest.mark.parametrize("model", ["ARIYA", "LEAF", "Other"])
+async def test_temperature_while_running_is_saved_for_next_start(model):
     entity = NissanVehicleClimate.__new__(NissanVehicleClimate)
     entity.coordinator = Mock()
-    entity.coordinator.data = {"climate": {"state": "ON"}, "extra": {"capabilities": {"test": True}}}
-    entity._entry = SimpleNamespace(data={"climate_accessory_overrides": {"climate_rear_left_seat": False}})
-    entity._temperature_lock = asyncio.Lock()
-    entity.async_write_ha_state = Mock()
-    entity._target_temperature = 18
-    entity._vehicle_name = "Nissan"
-    entity._api = Mock()
-    entity._api.start_climate_with_defaults.return_value = None
-    entity.hass = Mock()
-
-    async def executor(func, *args):
-        return func(*args)
-
-    entity.hass.async_add_executor_job = executor
-    await entity.async_set_temperature(temperature=22)
-    entity._api.start_climate_with_defaults.assert_called_once_with(
-        22, "CELSIUS", entity._entry.data["climate_accessory_overrides"], {"test": True}
-    )
-    assert entity._target_temperature == 22
-
-
-@pytest.mark.parametrize("fail", [False, True])
-async def test_ariya_temperature_change_while_running_uses_adjust(fail):
-    entity = NissanVehicleClimate.__new__(NissanVehicleClimate)
-    entity.coordinator = Mock()
-    entity.coordinator.data = {"vehicle": {"model": "ARIYA"}, "climate": {"state": "ON"}}
+    entity.coordinator.data = {"vehicle": {"model": model}, "climate": {"state": "ON"}}
     entity._entry = SimpleNamespace(data={})
     entity._temperature_lock = asyncio.Lock()
     entity.async_write_ha_state = Mock()
     entity._target_temperature = 19
-    entity._vehicle_name = "ARIYA"
+    entity._vehicle_name = model
     entity._api = Mock()
-    entity._api.adjust_climate.return_value = "request"
-    if fail:
-        entity._api.adjust_climate.side_effect = NissanConnectCommandError("rejected")
     entity.hass = Mock()
-    entity.hass.async_add_executor_job = lambda func, *args: _executor(func, *args)
-    entity.hass.async_create_task.side_effect = lambda coro: coro.close()
+    entity.hass.async_add_executor_job = AsyncMock(return_value=None)
 
-    if fail:
-        with pytest.raises(HomeAssistantError, match="rejected"):
-            await entity.async_set_temperature(temperature=20)
-        assert entity._target_temperature == 19
-        entity.async_write_ha_state.assert_not_called()
-        entity.hass.async_create_task.assert_not_called()
-    else:
-        await entity.async_set_temperature(temperature=20)
-        assert entity._target_temperature == 20
-        entity.async_write_ha_state.assert_called_once()
-        entity.hass.async_create_task.assert_called_once()
-    entity._api.adjust_climate.assert_called_once_with(20, "CELSIUS")
+    await entity.async_set_temperature(temperature=20)
+
+    assert entity._target_temperature == 20
+    entity.async_write_ha_state.assert_called_once()
+    entity.hass.async_add_executor_job.assert_not_awaited()
+    entity.hass.async_create_task.assert_not_called()
     entity._api.start_climate_with_defaults.assert_not_called()
     entity._api.sync_climate_defaults.assert_not_called()
 
-
-async def _executor(func, *args):
-    return func(*args)
+    entity.coordinator.data["climate"]["state"] = "OFF"
+    await entity.async_set_hvac_mode(HVACMode.HEAT_COOL)
+    entity.hass.async_add_executor_job.assert_awaited_once_with(
+        entity._api.start_climate_with_defaults, 20, "CELSIUS", None, None
+    )
 
 
 async def test_failed_climate_request_is_logged(caplog):

@@ -2,10 +2,9 @@
 
 A modern, standalone Home Assistant integration for **Nissan Connect Canada** (`MyNISSAN Canada` / `login.nissan.ca`).
 
-Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2 Single Sign-On, and Nissan Hades Cloud GraphQL APIs. Tested and confirmed on:
-* **Nissan ARIYA** (2023–2026)
-* **Nissan LEAF** (2026+, tested on Leaf SL)
-* Modern internal combustion Nissan vehicles supported by the MyNISSAN Canada app
+Built to support modern Nissan Canada telematics, WSO2 OAuth2 Single Sign-On, and Nissan cloud APIs, including GraphQL and REST.
+
+The integration has been used with an **ARIYA** and a **2026 LEAF SL**. A tester also provided diagnostics for a **2026 Rogue**. This does not certify every model year, feature, or vehicle configuration: availability and behavior depend on the vehicle, its subscriptions, and the Nissan backend.
 
 > **Vehicle Compatibility Note:** This integration requires the modern **MyNISSAN Canada** cloud platform (`login.nissan.ca`). Older generation LEAF models (e.g. 2011–2017 using legacy Carwings / 2G-3G NissanConnect EV portals) use an older telematics backend and are not compatible with this integration.
 
@@ -14,15 +13,15 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
 ## Key Features
 
 * **Full Climate Control (`climate`)**:
-  * Real Home Assistant climate entity with cabin temperature display.
+  * Home Assistant climate entity displaying the temperature reported by Nissan's climate status.
   * Adjust target temperature (18 °C to 32 °C) in 1 °C increments.
   * The selected target is retained across updates and Home Assistant restarts; if no target was restored, the integration uses Nissan's saved default.
   * Turn heating/cooling on (`HEAT_COOL`) or off (`OFF`) directly from dashboards or automations.
-  * For ARIYA, changing the target while climate is running sends `AdjustClimate` without changing Nissan's saved default. Its effect on the vehicle is not yet confirmed.
+  * Changing the target while climate is running saves it for the next start without adjusting the active session. When climate is off, supported Nissan defaults are synchronized when the target changes.
   * Instant action feedback and follow-up request polling.
   * Debug logs for `custom_components.nissan_connect_ca` identify the selected target, its source, Nissan's default, and the temperature sent in `StartClimate`. Review and redact debug logs before sharing: they may contain vehicle and account information.
 * **Real Door Lock Entity (`lock`)**:
-  * Standard Home Assistant lock entity reflecting door lock state in real-time.
+  * Standard Home Assistant lock entity reflecting the latest door lock state reported by Nissan.
   * Lock and unlock doors with a single stateful tile.
 * **Remote Action Buttons (`button`)**:
   * **Start / Stop Engine** (`button.*_start_engine_remotely` / `button.*_stop_engine_remotely`): Remote engine controls appear for non-electric vehicles when Nissan reports the service as requested and an engine ID is available.
@@ -51,7 +50,7 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
   * **Charge limit (EV, BaseElectric2)**: A `number` entity reads and sets the target charge limit (50–100 %, steps of 10).
   * **Charge history and V2L (EV)**: Sensors for the latest month's charge sessions, energy and duration, plus V2L state and minimum level, created only when Nissan returns data. When available, a V2L slider sets the minimum level from 10% to 95% in 5% increments.
   * **Configuration refresh**: Changing a charge limit, V2L limit or schedule refreshes the vehicle data; the integration also follows the request or polls the schedule until the change is reported.
-  * **Remote climate accessories**: When Nissan reports supported accessories, configuration switches select steering wheel heat, defrost and front or rear seat heat for the next remote start. The switches store local preferences; on vehicles exposing accessory defaults, the integration reads and, when needed, persistently updates Nissan's climate defaults to match the selected temperature and accessories before starting climate. Changing the climate target also updates those defaults. This can affect subsequent starts from the MyNISSAN app, but does not edit saved schedules. Without an override, Nissan's saved default is preserved; an unknown default remains unknown. On vehicles reporting `ElectricVehicle` without accessory defaults, such as the tested ARIYA, the target is retained in Home Assistant and sent with each start, but is not saved as a Nissan default. Nissan's acceptance of the command does not confirm that the vehicle applies the requested temperature.
+  * **Remote climate accessories**: When Nissan reports supported accessories, configuration switches select steering wheel heat, defrost and front or rear seat heat for the next remote start. The switches store local preferences; on vehicles exposing accessory defaults, the integration reads and, when needed, persistently updates Nissan's climate defaults to match the selected temperature and accessories before starting climate. Changing the climate target while climate is off also updates those defaults. This can affect subsequent starts from the MyNISSAN app, but does not edit saved schedules. Without an override, Nissan's saved default is preserved; an unknown default remains unknown. On vehicles reporting `ElectricVehicle` without accessory defaults, such as the tested ARIYA, the target is retained in Home Assistant and sent with each start, but is not saved as a Nissan default. Nissan's acceptance of the command does not confirm that the vehicle applies the requested temperature.
   * **Alerts**: Diagnostic counters for enabled boundary, curfew and speed alerts, and the valet alert status (read-only; locations are not exposed).
   * **Tire pressures**: Read GraphQL tire pressures in PSI when available, falling back to RTS pressure values and units. Tire sensors are added when readings first become available; availability depends on the vehicle and Nissan backend.
   * **Last Communication** (`sensor.*_last_communication`): Timestamp when the car last uploaded telemetry to Nissan.
@@ -61,7 +60,7 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
   * **Openings**: Engine hood (`binary_sensor.*_hood`) and trunk/hatch (`binary_sensor.*_trunk`).
 * **Secure Encrypted Credential Storage**:
   * Automatic unattended token renewal requires login capability because Nissan Canada WSO2 SSO refresh tokens expire after 7 days.
-  * Stored credentials in Home Assistant are encrypted using **Fernet (AES-128-CBC + HMAC-SHA256)** with a 256-bit key kept in `.storage/nissan_connect_ca.key` (permission mode `0600`). Passwords are never stored in plaintext and are immediately wiped from RAM after use.
+  * The integration encrypts the stored password using **Fernet (AES-128-CBC + HMAC-SHA256)** with a key in `.storage/nissan_connect_ca.key` (created with permission mode `0600`). The password must be decrypted for authentication; access to both the key and encrypted credentials allows recovery. Protect Home Assistant files and backups accordingly.
 
 ---
 

@@ -1004,44 +1004,6 @@ class NissanConnectCAAPI:
         return self.start_climate(temperature_value, unit, parameters or None)
 
     @synchronized_account
-    def adjust_climate(self, temperature_value, unit="CELSIUS"):
-        """Adjust a running climate session without changing Nissan defaults."""
-        vin = self.vin or self.vehicle_id
-        if not vin:
-            raise ValueError("Vehicle ID or VIN is missing")
-        query = (
-            "mutation AdjustClimate($vin: String!, $climate: AdjustClimateInput!, "
-            "$parameters: SetClimateParametersInput, $setAsDefault: Boolean) { "
-            "adjustClimate(vin: $vin, climate: $climate, parameters: $parameters, setAsDefault: $setAsDefault) { "
-            "__typename ... on TelematicsResponse { serviceRequestId additionalData { "
-            "__typename ... on SetClimateDefaultsResponse { success } "
-            "... on SetClimateDefaultsError { message } } } } }"
-        )
-        variables = {
-            "vin": vin,
-            "climate": {"temperatureValue": float(temperature_value), "unit": unit},
-            "parameters": {},
-            "setAsDefault": False,
-        }
-        _LOGGER.debug(
-            "[%s] AdjustClimate API temperature: temperatureValue=%s, unit=%s, setAsDefault=false",
-            self._label, variables["climate"]["temperatureValue"], unit,
-        )
-        data = self._post_graphql("AdjustClimate", query, variables)
-        result = data.get("adjustClimate") or {}
-        additional = result.get("additionalData") or {}
-        if additional.get("__typename") == "SetClimateDefaultsError":
-            raise NissanConnectCommandError(
-                f"Nissan climate adjustment failed: {additional.get('message') or 'defaults update rejected'}"
-            )
-        if additional.get("__typename") == "SetClimateDefaultsResponse" and additional.get("success") is not True:
-            raise NissanConnectCommandError("Nissan climate adjustment reported an unsuccessful defaults update")
-        request_id = result.get("serviceRequestId")
-        if not request_id:
-            raise NissanConnectCommandError("Nissan climate adjustment returned no request ID")
-        return request_id
-
-    @synchronized_account
     def start_climate(self, temperature_value=21.0, unit="CELSIUS", parameters=None):
         """Démarre la climatisation à distance (habitacle)."""
         vin = self.vin or self.vehicle_id
