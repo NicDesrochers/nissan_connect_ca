@@ -18,6 +18,7 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
   * Adjust target temperature (18 °C to 32 °C) in 1 °C increments.
   * The selected target is retained across updates and Home Assistant restarts; if no target was restored, the integration uses Nissan's saved default.
   * Turn heating/cooling on (`HEAT_COOL`) or off (`OFF`) directly from dashboards or automations.
+  * For ARIYA, changing the target while climate is running sends `AdjustClimate` without changing Nissan's saved default. Its effect on the vehicle is not yet confirmed.
   * Instant action feedback and follow-up request polling.
   * Debug logs for `custom_components.nissan_connect_ca` identify the selected target, its source, Nissan's default, and the temperature sent in `StartClimate`. Review and redact debug logs before sharing: they may contain vehicle and account information.
 * **Real Door Lock Entity (`lock`)**:

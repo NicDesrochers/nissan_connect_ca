@@ -10,7 +10,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from custom_components.nissan_connect_ca.api import NissanConnectCommandError
-from custom_components.nissan_connect_ca.climate import NissanVehicleClimate
+from custom_components.nissan_connect_ca.climate import NissanVehicleClimate, _async_poll_climate_request
 
 
 def test_temperature_members_match_installed_core():
@@ -70,6 +70,56 @@ async def test_setting_temperature_while_running_uses_sync_then_start():
         22, "CELSIUS", entity._entry.data["climate_accessory_overrides"], {"test": True}
     )
     assert entity._target_temperature == 22
+
+
+@pytest.mark.parametrize("fail", [False, True])
+async def test_ariya_temperature_change_while_running_uses_adjust(fail):
+    entity = NissanVehicleClimate.__new__(NissanVehicleClimate)
+    entity.coordinator = Mock()
+    entity.coordinator.data = {"vehicle": {"model": "ARIYA"}, "climate": {"state": "ON"}}
+    entity._entry = SimpleNamespace(data={})
+    entity._temperature_lock = asyncio.Lock()
+    entity.async_write_ha_state = Mock()
+    entity._target_temperature = 19
+    entity._vehicle_name = "ARIYA"
+    entity._api = Mock()
+    entity._api.adjust_climate.return_value = "request"
+    if fail:
+        entity._api.adjust_climate.side_effect = NissanConnectCommandError("rejected")
+    entity.hass = Mock()
+    entity.hass.async_add_executor_job = lambda func, *args: _executor(func, *args)
+    entity.hass.async_create_task.side_effect = lambda coro: coro.close()
+
+    if fail:
+        with pytest.raises(HomeAssistantError, match="rejected"):
+            await entity.async_set_temperature(temperature=20)
+        assert entity._target_temperature == 19
+        entity.async_write_ha_state.assert_not_called()
+        entity.hass.async_create_task.assert_not_called()
+    else:
+        await entity.async_set_temperature(temperature=20)
+        assert entity._target_temperature == 20
+        entity.async_write_ha_state.assert_called_once()
+        entity.hass.async_create_task.assert_called_once()
+    entity._api.adjust_climate.assert_called_once_with(20, "CELSIUS")
+    entity._api.start_climate_with_defaults.assert_not_called()
+    entity._api.sync_climate_defaults.assert_not_called()
+
+
+async def _executor(func, *args):
+    return func(*args)
+
+
+async def test_failed_climate_request_is_logged(caplog):
+    hass = Mock()
+    api = Mock()
+    coordinator = Mock()
+    coordinator.async_refresh = AsyncMock()
+    hass.async_add_executor_job = AsyncMock(return_value={"status": "FAILED", "statusDetails": "rejected"})
+    with patch("custom_components.nissan_connect_ca.climate.asyncio.sleep", new_callable=AsyncMock):
+        await _async_poll_climate_request(hass, api, "request", coordinator, "ARIYA")
+    assert "Climate request failed: status=FAILED, details=rejected" in caplog.text
+    coordinator.async_refresh.assert_awaited_once()
 
 
 async def test_local_target_does_not_replace_nissan_default_snapshot():

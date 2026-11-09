@@ -98,6 +98,38 @@ def test_start_climate_does_not_set_default():
     assert "setAsDefault" not in post.call_args.args[2]
 
 
+def test_adjust_climate_sends_target_without_changing_defaults():
+    api = _api()
+    with patch.object(api, "_post_graphql", return_value={
+        "adjustClimate": {"__typename": "TelematicsResponse", "serviceRequestId": "request"}
+    }) as post:
+        assert api.adjust_climate(20) == "request"
+    name, query, variables = post.call_args.args
+    assert name == "AdjustClimate"
+    assert "$climate: AdjustClimateInput!" in query
+    assert "adjustClimate(vin: $vin, climate: $climate" in query
+    assert variables == {
+        "vin": "VIN123",
+        "climate": {"temperatureValue": 20.0, "unit": "CELSIUS"},
+        "parameters": {},
+        "setAsDefault": False,
+    }
+
+
+@pytest.mark.parametrize("response", [
+    {},
+    {"adjustClimate": {"__typename": "OtherError"}},
+    {"adjustClimate": {"__typename": "TelematicsResponse", "serviceRequestId": "request",
+                       "additionalData": {"__typename": "SetClimateDefaultsError", "message": "rejected"}}},
+    {"adjustClimate": {"__typename": "TelematicsResponse", "serviceRequestId": "request",
+                       "additionalData": {"__typename": "SetClimateDefaultsResponse", "success": False}}},
+])
+def test_adjust_climate_rejects_unsuccessful_response(response):
+    api = _api()
+    with patch.object(api, "_post_graphql", return_value=response), pytest.raises(NissanConnectCommandError):
+        api.adjust_climate(20)
+
+
 def test_start_climate_sends_accessories_without_changing_defaults():
     api = _api()
     parameters = {

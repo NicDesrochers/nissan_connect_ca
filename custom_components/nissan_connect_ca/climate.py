@@ -49,6 +49,9 @@ async def _async_poll_climate_request(
                 vehicle_name, attempt, CLIMATE_POLL_ATTEMPTS, status, status_data.get("statusDetails")
             )
             if status and status not in ("PENDING", "IN_PROGRESS"):
+                if status != "SUCCESS":
+                    _LOGGER.warning("[%s] Climate request failed: status=%s, details=%s",
+                                    vehicle_name, status, status_data.get("statusDetails"))
                 await coordinator.async_refresh()
                 return
         except Exception as err:
@@ -216,11 +219,17 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Apply and retain a requested temperature after Nissan accepts it."""
         try:
             if self.hvac_mode != HVACMode.OFF:
-                req_id = await self.hass.async_add_executor_job(
-                    self._api.start_climate_with_defaults, target, "CELSIUS",
-                    self._entry.data.get(CLIMATE_OVERRIDES),
-                    ((self.coordinator.data or {}).get("extra") or {}).get("capabilities"),
-                )
+                model = str(((self.coordinator.data or {}).get("vehicle") or {}).get("model") or "")
+                if "ariya" in model.lower():
+                    req_id = await self.hass.async_add_executor_job(
+                        self._api.adjust_climate, target, "CELSIUS"
+                    )
+                else:
+                    req_id = await self.hass.async_add_executor_job(
+                        self._api.start_climate_with_defaults, target, "CELSIUS",
+                        self._entry.data.get(CLIMATE_OVERRIDES),
+                        ((self.coordinator.data or {}).get("extra") or {}).get("capabilities"),
+                    )
                 if req_id:
                     self.hass.async_create_task(
                         _async_poll_climate_request(self.hass, self._api, req_id, self.coordinator, self._vehicle_name)
@@ -232,7 +241,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     ((self.coordinator.data or {}).get("extra") or {}).get("capabilities"),
                 )
         except (NissanConnectAuthenticationError, NissanConnectCommandError, requests.RequestException) as err:
-            raise HomeAssistantError(f"Failed to update climate defaults: {err}") from err
+            raise HomeAssistantError(f"Failed to update climate temperature: {err}") from err
         self._target_temperature = target
         _LOGGER.debug("[%s] Climate target retained: %s °C", self._vehicle_name, target)
         self.async_write_ha_state()
