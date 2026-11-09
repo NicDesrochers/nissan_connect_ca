@@ -1,5 +1,7 @@
 """Tests for remote climate accessory preferences."""
 
+import logging
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -77,6 +79,32 @@ async def test_both_climate_start_paths_use_same_accessory_preferences():
     await entity.async_set_hvac_mode(HVACMode.HEAT_COOL)
     hass.async_add_executor_job.assert_awaited_once_with(
         api.start_climate_with_defaults, 32, "CELSIUS", entry.data[CLIMATE_OVERRIDES], None
+    )
+
+
+@pytest.mark.parametrize(("state_target", "target", "source"), [
+    (20, 20, "thermostat state"),
+    (None, 19, "Nissan default"),
+])
+async def test_button_logs_selected_source_and_cloud_default(caplog, state_target, target, source):
+    coordinator, entry, api = _setup({})
+    coordinator.data["climateDefaults"] = {"climate": {"value": 19, "unit": "CELSIUS"}}
+    hass = Mock()
+    hass.states.async_all.return_value = [
+        SimpleNamespace(entity_id="climate.nissan_connect_ca_leaf_climate",
+                        attributes={"temperature": state_target})
+    ]
+    hass.async_add_executor_job = AsyncMock(return_value=None)
+    button = NissanStartClimateButton(coordinator, entry, api)
+    button.hass = hass
+    caplog.set_level(logging.DEBUG, logger="custom_components.nissan_connect_ca.button")
+
+    await button.async_press()
+
+    assert f"target={float(target) if state_target is not None else target} °C, source={source}" in caplog.text
+    assert "'value': 19" in caplog.text
+    hass.async_add_executor_job.assert_awaited_once_with(
+        api.start_climate_with_defaults, target, "CELSIUS", None, None
     )
 
 

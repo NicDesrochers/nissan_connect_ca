@@ -74,7 +74,7 @@ def test_set_climate_defaults_payload():
     assert "setClimateDefaults" in query
     assert variables["vin"] == "VIN123"
     assert variables["climate"] == {"temperatureValue": 23.0, "unit": "CELSIUS"}
-    assert variables["parameters"] == {}
+    assert "parameters" not in variables
 
 
 def test_refresh_battery_status_payload():
@@ -194,7 +194,7 @@ def test_ariya_start_sends_target_without_writing_unavailable_defaults():
     start.assert_called_once_with(23, "CELSIUS", None)
 
 
-def test_ariya_target_change_does_not_send_empty_default_mutation():
+def test_ariya_target_change_does_not_send_default_mutation():
     api = _api()
     vehicle = {"__typename": "ElectricVehicle",
                "climateDefaults": {"climate": {"value": 19, "unit": "CELSIUS"}}}
@@ -202,6 +202,37 @@ def test_ariya_target_change_does_not_send_empty_default_mutation():
          patch.object(api, "set_climate_defaults") as write:
         assert api.sync_climate_defaults(23) is None
     write.assert_not_called()
+
+
+def test_ariya_unchanged_target_does_not_update_default():
+    api = _api()
+    vehicle = {"__typename": "ElectricVehicle",
+               "climateDefaults": {"climate": {"value": 19, "unit": "CELSIUS"}}}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value=vehicle), \
+         patch.object(api, "set_climate_defaults") as write:
+        assert api.sync_climate_defaults(19) is None
+    write.assert_not_called()
+
+
+def test_ariya_start_posts_temperature_without_default_mutation(caplog):
+    caplog.set_level("DEBUG", logger="custom_components.nissan_connect_ca.api")
+    api = _api()
+    vehicle = {"__typename": "ElectricVehicle",
+               "climateDefaults": {"climate": {"value": 19, "unit": "CELSIUS"}}}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value=vehicle), \
+         patch.object(api, "_post_graphql", return_value={
+             "startClimate": {"serviceRequestId": "request"}
+         }) as post:
+        assert api.start_climate_with_defaults(20) == "request"
+    name, _, variables = post.call_args.args
+    assert post.call_count == 1
+    assert name == "StartClimate"
+    assert variables == {
+        "vin": "VIN123",
+        "climate": {"temperatureValue": 20.0, "unit": "CELSIUS"},
+    }
+    assert "requested=20 CELSIUS, Nissan default=19 CELSIUS" in caplog.text
+    assert "StartClimate API temperature: temperatureValue=20.0, unit=CELSIUS" in caplog.text
 
 
 def test_modern_vehicle_empty_accessory_defaults_still_updates():

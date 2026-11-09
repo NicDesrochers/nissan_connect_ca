@@ -1,10 +1,11 @@
 """The climate entity must expose temperatures under the name the installed core uses."""
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.climate import ClimateEntity, HVACMode
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -120,26 +121,55 @@ async def test_setting_temperature_surfaces_default_update_failure():
     entity.async_write_ha_state.assert_not_called()
 
 
-async def test_saved_target_wins_over_cloud_and_survives_updates():
+async def test_saved_target_wins_over_cloud_and_survives_updates(caplog):
     entity = NissanVehicleClimate.__new__(NissanVehicleClimate)
     entity.coordinator = SimpleNamespace(data={"climateDefaults": {"climate": {"value": 18}}})
     entity._target_temperature = None
+    entity._vehicle_name = "Nissan"
     entity.async_get_last_state = AsyncMock(return_value=SimpleNamespace(attributes={"temperature": 23}))
+    caplog.set_level(logging.DEBUG, logger="custom_components.nissan_connect_ca.climate")
     with patch.object(CoordinatorEntity, "async_added_to_hass", new_callable=AsyncMock), \
          patch.object(CoordinatorEntity, "_handle_coordinator_update"):
         await entity.async_added_to_hass()
         entity._handle_coordinator_update()
     assert entity._climate_target_temperature == 23
+    assert "target=23.0 °C, source=restored Home Assistant state" in caplog.text
 
 
-async def test_missing_restored_target_uses_cloud_default():
+async def test_missing_restored_target_uses_cloud_default(caplog):
     entity = NissanVehicleClimate.__new__(NissanVehicleClimate)
     entity.coordinator = SimpleNamespace(data={"climateDefaults": {"climate": {"value": 19}}})
     entity._target_temperature = None
+    entity._vehicle_name = "Nissan"
     entity.async_get_last_state = AsyncMock(return_value=None)
+    caplog.set_level(logging.DEBUG, logger="custom_components.nissan_connect_ca.climate")
     with patch.object(CoordinatorEntity, "async_added_to_hass", new_callable=AsyncMock):
         await entity.async_added_to_hass()
     assert entity._climate_target_temperature == 19
+    assert "target=19.0 °C, source=Nissan default" in caplog.text
+
+
+async def test_thermostat_logs_selected_target_and_nissan_default(caplog):
+    entity = NissanVehicleClimate.__new__(NissanVehicleClimate)
+    entity.coordinator = Mock()
+    entity.coordinator.data = {
+        "climateDefaults": {"climate": {"value": 19, "unit": "CELSIUS"}}
+    }
+    entity._target_temperature = 20
+    entity._vehicle_name = "ARIYA"
+    entity._entry = SimpleNamespace(data={})
+    entity._api = Mock()
+    entity.hass = Mock()
+    entity.hass.async_add_executor_job = AsyncMock(return_value=None)
+    caplog.set_level(logging.DEBUG, logger="custom_components.nissan_connect_ca.climate")
+
+    await entity.async_set_hvac_mode(HVACMode.HEAT_COOL)
+
+    assert "target=20 °C, source=retained thermostat target, retained=20 °C" in caplog.text
+    assert "'value': 19" in caplog.text
+    entity.hass.async_add_executor_job.assert_awaited_once_with(
+        entity._api.start_climate_with_defaults, 20, "CELSIUS", None, None
+    )
 
 
 async def test_temperature_is_retained_when_refresh_returns_stale_default():

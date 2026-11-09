@@ -138,6 +138,14 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     pass
         if self._target_temperature is None:
             self._target_temperature = self._get_cloud_target_temperature()
+            source = "Nissan default" if self._target_temperature is not None else "unavailable"
+        else:
+            source = "restored Home Assistant state"
+        _LOGGER.debug(
+            "[%s] Climate target initialized: target=%s °C, source=%s, Nissan default=%s",
+            self._vehicle_name, self._target_temperature, source,
+            (self.coordinator.data or {}).get("climateDefaults", {}).get("climate"),
+        )
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -198,6 +206,10 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if not self._attr_min_temp <= target <= self._attr_max_temp:
             raise HomeAssistantError("Climate temperature is outside the supported range")
         async with self._temperature_lock:
+            _LOGGER.debug(
+                "[%s] Climate target change: requested=%s °C, rounded=%s °C, previous=%s °C, mode=%s",
+                self._vehicle_name, temp, target, self._target_temperature, self.hvac_mode,
+            )
             await self._async_apply_temperature(target)
 
     async def _async_apply_temperature(self, target: float) -> None:
@@ -222,6 +234,7 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         except (NissanConnectAuthenticationError, NissanConnectCommandError, requests.RequestException) as err:
             raise HomeAssistantError(f"Failed to update climate defaults: {err}") from err
         self._target_temperature = target
+        _LOGGER.debug("[%s] Climate target retained: %s °C", self._vehicle_name, target)
         self.async_write_ha_state()
         if self.hvac_mode == HVACMode.OFF:
             await self.coordinator.async_refresh()
@@ -241,7 +254,17 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 raise HomeAssistantError(f"Failed to stop climate: {err}") from err
         else:
             target = self._climate_target_temperature or DEFAULT_TARGET_TEMPERATURE
-            _LOGGER.debug("[%s] Starting vehicle climate at %s °C", self._vehicle_name, target)
+            source = (
+                "retained thermostat target" if self._target_temperature is not None
+                else "Nissan default" if self._get_cloud_target_temperature() is not None
+                else "integration fallback"
+            )
+            _LOGGER.debug(
+                "[%s] Starting climate from thermostat: target=%s °C, source=%s, "
+                "retained=%s °C, Nissan default=%s",
+                self._vehicle_name, target, source, self._target_temperature,
+                (self.coordinator.data or {}).get("climateDefaults", {}).get("climate"),
+            )
             try:
                 req_id = await self.hass.async_add_executor_job(
                     self._api.start_climate_with_defaults, target, "CELSIUS",

@@ -960,8 +960,9 @@ class NissanConnectCAAPI:
                 "temperatureValue": float(temperature_value),
                 "unit": unit,
             },
-            "parameters": parameters or {},
         }
+        if parameters is not None:
+            variables["parameters"] = parameters
         data = self._post_graphql("SetClimateDefaults", query, variables)
         result = data.get("setClimateDefaults") or {}
         if result.get("success") is not True:
@@ -976,6 +977,11 @@ class NissanConnectCAAPI:
         vehicle = self.get_dynamic_vehicle_data()
         defaults = vehicle.get("climateDefaults")
         climate = (defaults or {}).get("climate") or {}
+        _LOGGER.debug(
+            "[%s] Climate defaults comparison: requested=%s %s, Nissan default=%s %s, vehicle type=%s",
+            self._label, temperature_value, unit, climate.get("value"), climate.get("unit"),
+            vehicle.get("__typename"),
+        )
         if climate.get("value") is None or climate.get("unit") != unit:
             raise NissanConnectCommandError("Nissan climate defaults could not be read in the requested unit")
         if vehicle.get("__typename") == "ElectricVehicle" and "parameters" not in defaults:
@@ -993,7 +999,7 @@ class NissanConnectCAAPI:
 
     @synchronized_account
     def start_climate_with_defaults(self, temperature_value, unit="CELSIUS", overrides=None, capabilities=None):
-        """Synchronize persistent Nissan defaults before starting climate."""
+        """Synchronize supported Nissan defaults before starting climate."""
         parameters = self.sync_climate_defaults(temperature_value, unit, overrides, capabilities)
         return self.start_climate(temperature_value, unit, parameters or None)
 
@@ -1020,6 +1026,10 @@ class NissanConnectCAAPI:
         }
         if parameters:
             variables["parameters"] = parameters
+        _LOGGER.debug(
+            "[%s] StartClimate API temperature: temperatureValue=%s, unit=%s",
+            self._label, variables["climate"]["temperatureValue"], variables["climate"]["unit"],
+        )
         data = self._post_graphql("StartClimate", query, variables)
         start_result = data.get("startClimate") or {}
         service_request_id = start_result.get("serviceRequestId")

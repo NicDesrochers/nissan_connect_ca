@@ -466,8 +466,11 @@ class NissanStartClimateButton(CoordinatorEntity, ButtonEntity):
         try:
             cloud_climate = (self.coordinator.data.get("climateDefaults") or {}).get("climate") or {}
             target_temp = cloud_climate.get("value") if cloud_climate.get("unit") == "CELSIUS" else None
+            source = "Nissan default"
+            climate_entity = None
             if target_temp is None:
                 target_temp = 21.0
+                source = "integration fallback"
             for state in self.hass.states.async_all("climate"):
                 if "nissan_connect_ca" in state.entity_id and (
                     str(self._entry.entry_id) in state.entity_id
@@ -478,10 +481,17 @@ class NissanStartClimateButton(CoordinatorEntity, ButtonEntity):
                     if temp is not None:
                         try:
                             target_temp = float(temp)
+                            source = "thermostat state"
+                            climate_entity = state.entity_id
                             break
                         except (ValueError, TypeError):
                             pass
 
+            _LOGGER.debug(
+                "[%s] Starting climate from button: target=%s °C, source=%s, "
+                "thermostat=%s, Nissan default=%s",
+                self._api._label, target_temp, source, climate_entity, cloud_climate,
+            )
             req_id = await self.hass.async_add_executor_job(
                 self._api.start_climate_with_defaults, target_temp, "CELSIUS",
                 self._entry.data.get(CLIMATE_OVERRIDES),
