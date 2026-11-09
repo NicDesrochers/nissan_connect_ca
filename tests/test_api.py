@@ -1,5 +1,5 @@
 """Tests du client API (sans réseau)."""
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 import requests
@@ -67,15 +67,14 @@ def test_set_tokens_updates_client():
 
 def test_set_climate_defaults_payload():
     api = _api()
-    with patch.object(api, "_post_graphql", return_value={}) as post:
+    with patch.object(api, "_post_graphql", return_value={"setClimateDefaults": {"success": True}}) as post:
         api.set_climate_defaults(23)
     name, query, variables = post.call_args.args
     assert name == "SetClimateDefaults"
     assert "setClimateDefaults" in query
     assert variables["vin"] == "VIN123"
     assert variables["climate"] == {"temperatureValue": 23.0, "unit": "CELSIUS"}
-    # Nissan renvoie 400 si les paramètres d'accessoires sont absents.
-    assert "parameters" in variables
+    assert variables["parameters"] == {}
 
 
 def test_refresh_battery_status_payload():
@@ -97,6 +96,161 @@ def test_start_climate_does_not_set_default():
     ) as post:
         assert api.start_climate(21) == "abc"
     assert "setAsDefault" not in post.call_args.args[2]
+
+
+def test_start_climate_sends_accessories_without_changing_defaults():
+    api = _api()
+    parameters = {
+        "steeringWheelHeaterState": "ON",
+        "defrostAndDeicerState": "ON",
+        "seatsClimate": {"frontDriverState": "HEAT", "frontPassengerState": "HEAT"},
+    }
+    with patch.object(api, "_post_graphql", return_value={"startClimate": {"serviceRequestId": "id"}}) as post:
+        assert api.start_climate(32, "CELSIUS", parameters) == "id"
+    assert post.call_args.args[2]["climate"] == {"temperatureValue": 32.0, "unit": "CELSIUS"}
+    assert post.call_args.args[2]["parameters"] == parameters
+    assert "setAsDefault" not in post.call_args.args[2]
+
+
+def test_set_climate_defaults_preserves_accessories():
+    api = _api()
+    parameters = {"steeringWheelHeaterState": "ON", "seatsClimate": {"frontDriverState": "HEAT"}}
+    with patch.object(api, "_post_graphql", return_value={"setClimateDefaults": {"success": True}}) as post:
+        api.set_climate_defaults(25, "CELSIUS", parameters)
+    assert post.call_args.args[2]["parameters"] == parameters
+
+
+@pytest.mark.parametrize("response", [
+    {},
+    {"setClimateDefaults": {"__typename": "SetClimateDefaultsError", "message": "rejected"}},
+    {"setClimateDefaults": {"__typename": "SetClimateDefaultsResponse", "success": False}},
+])
+def test_set_climate_defaults_rejects_unsuccessful_response(response):
+    api = _api()
+    with patch.object(api, "_post_graphql", return_value=response), pytest.raises(NissanConnectCommandError):
+        api.set_climate_defaults(18)
+
+
+def test_climate_start_updates_defaults_before_starting():
+    api = _api()
+    defaults = {
+        "climate": {"value": 18, "unit": "CELSIUS"},
+        "parameters": {
+            "steeringWheelHeaterState": "ON",
+            "seatsClimate": {"frontDriverState": "HEAT", "rearLeftPassengerState": "HEAT",
+                             "rearRightPassengerState": "HEAT"},
+        },
+    }
+    desired = {"steeringWheelHeaterState": "ON", "seatsClimate": {
+        "frontDriverState": "HEAT", "rearLeftPassengerState": "OFF", "rearRightPassengerState": "OFF",
+    }}
+    operations = Mock()
+    operations.read.return_value = {"climateDefaults": defaults}
+    operations.start.return_value = "request"
+    with patch.object(api, "get_dynamic_vehicle_data", operations.read), \
+         patch.object(api, "set_climate_defaults", operations.write), \
+         patch.object(api, "start_climate", operations.start):
+        assert api.start_climate_with_defaults(18, "CELSIUS", {
+            "climate_rear_left_seat": False, "climate_rear_right_seat": False,
+        }) == "request"
+    assert operations.mock_calls == [
+        call.read(),
+        call.write(18, "CELSIUS", desired),
+        call.start(18, "CELSIUS", desired),
+    ]
+
+
+def test_climate_start_does_not_rewrite_matching_defaults():
+    api = _api()
+    defaults = {"climate": {"value": 18, "unit": "CELSIUS"},
+                "parameters": {"seatsClimate": {"rearLeftPassengerState": "OFF"}}}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value={"climateDefaults": defaults}), \
+         patch.object(api, "set_climate_defaults") as write, \
+         patch.object(api, "start_climate", return_value="request") as start:
+        assert api.start_climate_with_defaults(18, "CELSIUS", {"climate_rear_left_seat": False}) == "request"
+    write.assert_not_called()
+    start.assert_called_once_with(18, "CELSIUS", {"seatsClimate": {"rearLeftPassengerState": "OFF"}})
+
+
+def test_sync_climate_defaults_updates_temperature_and_preserves_live_accessories():
+    api = _api()
+    parameters = {"steeringWheelHeaterState": "ON", "seatsClimate": {"frontDriverState": "HEAT"}}
+    defaults = {"climate": {"value": 18, "unit": "CELSIUS"}, "parameters": parameters}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value={"climateDefaults": defaults}), \
+         patch.object(api, "set_climate_defaults") as write:
+        assert api.sync_climate_defaults(22) == parameters
+    write.assert_called_once_with(22, "CELSIUS", parameters)
+
+
+def test_ariya_start_sends_target_without_writing_unavailable_defaults():
+    api = _api()
+    vehicle = {"__typename": "ElectricVehicle",
+               "climateDefaults": {"climate": {"value": 19, "unit": "CELSIUS"}}}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value=vehicle), \
+         patch.object(api, "set_climate_defaults") as write, \
+         patch.object(api, "start_climate", return_value="request") as start:
+        assert api.start_climate_with_defaults(23) == "request"
+    write.assert_not_called()
+    start.assert_called_once_with(23, "CELSIUS", None)
+
+
+def test_ariya_target_change_does_not_send_empty_default_mutation():
+    api = _api()
+    vehicle = {"__typename": "ElectricVehicle",
+               "climateDefaults": {"climate": {"value": 19, "unit": "CELSIUS"}}}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value=vehicle), \
+         patch.object(api, "set_climate_defaults") as write:
+        assert api.sync_climate_defaults(23) is None
+    write.assert_not_called()
+
+
+def test_modern_vehicle_empty_accessory_defaults_still_updates():
+    api = _api()
+    vehicle = {"__typename": "ElectricAVK2Vehicle",
+               "climateDefaults": {"climate": {"value": 19, "unit": "CELSIUS"}, "parameters": {}}}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value=vehicle), \
+         patch.object(api, "set_climate_defaults") as write:
+        api.sync_climate_defaults(23)
+    write.assert_called_once_with(23, "CELSIUS", {})
+
+
+def test_sync_climate_defaults_applies_override_for_supported_seat_with_null_default():
+    api = _api()
+    defaults = {"climate": {"value": 18, "unit": "CELSIUS"},
+                "parameters": {"seatsClimate": {"rearLeftPassengerState": None}}}
+    capabilities = {"accessoriesDetails": {"seatHeater": {
+        "enabled": True, "accessories": {"secondLeftSeat": "HEATING"},
+    }}}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value={"climateDefaults": defaults}), \
+         patch.object(api, "set_climate_defaults") as write:
+        api.sync_climate_defaults(18, "CELSIUS", {"climate_rear_left_seat": False}, capabilities)
+    write.assert_called_once_with(18, "CELSIUS", {"seatsClimate": {"rearLeftPassengerState": "OFF"}})
+
+
+@pytest.mark.parametrize("failure", ["read", "write"])
+def test_climate_start_is_not_sent_if_default_sync_fails(failure):
+    api = _api()
+    defaults = {"climate": {"value": 18, "unit": "CELSIUS"}, "parameters": {}}
+    with patch.object(api, "get_dynamic_vehicle_data", return_value={"climateDefaults": defaults} if failure == "write" else {}), \
+         patch.object(api, "set_climate_defaults", side_effect=NissanConnectCommandError("rejected")), \
+         patch.object(api, "start_climate") as start, pytest.raises(NissanConnectCommandError):
+        api.start_climate_with_defaults(19)
+    start.assert_not_called()
+
+
+@pytest.mark.parametrize("method", ["get_headers", "get_graphql_headers"])
+def test_relogin_timeout_is_not_authentication_failure(method):
+    api = _api()
+    api.set_relogin_handler(Mock(side_effect=requests.ReadTimeout("timeout")))
+    with pytest.raises(requests.ReadTimeout):
+        getattr(api, method)()
+
+
+def test_relogin_rejected_credentials_still_require_authentication():
+    api = _api()
+    api.set_relogin_handler(Mock(side_effect=NissanConnectAuthenticationError("rejected")))
+    with pytest.raises(NissanConnectAuthenticationError):
+        api.get_headers()
 
 
 def test_dynamic_data_requests_tire_pressure_in_existing_query():
@@ -148,6 +302,37 @@ def test_snapshot_retains_graphql_tire_pressure():
              "tirePressure": {"flPressure": 35}
          }):
         assert api.get_vehicle_snapshot()["tirePressure"]["flPressure"] == 35
+
+
+@pytest.mark.parametrize(("vehicle", "expect_engine"), [
+    ({"engineType": "Electric", "model": "ARIYA"}, False),
+    ({"engineType": "EV", "model": "LEAF"}, False),
+    ({"model": "ARIYA"}, False),
+    ({"model": "LEAF"}, False),
+    ({"engineType": "Gasoline", "model": "Rogue"}, True),
+    ({"engineType": "Hybrid", "model": "Rogue"}, True),
+    ({"engineType": "Hybrid", "model": "ARIYA"}, True),
+    ({"model": "Unknown"}, True),
+])
+def test_snapshot_fetches_engines_only_for_non_electric_or_unknown(vehicle, expect_engine):
+    api = _api()
+    api._last_snapshot = {"engines": {"engines": [{"id": "stale"}]}}
+
+    def get_json(url, *, require_id_token=False):
+        if "/engines" in url:
+            return {"engines": [{"id": "engine"}]}
+        if "/health" in url or "/locations" in url:
+            return {}
+        return vehicle
+
+    with patch.object(api, "_get_json", side_effect=get_json) as get, \
+         patch.object(api, "get_dynamic_vehicle_data", return_value={}) as dynamic, \
+         patch.object(api, "get_extra_vehicle_data", return_value={}):
+        snapshot = api.get_vehicle_snapshot()
+    engine_calls = [c for c in get.call_args_list if "/engines" in c.args[0]]
+    assert bool(engine_calls) is expect_engine
+    assert snapshot["engines"] == ({"engines": [{"id": "engine"}]} if expect_engine else {})
+    assert dynamic.called is not expect_engine
 
 
 def test_refresh_vehicle_status_and_check():
@@ -344,3 +529,52 @@ def test_extra_vehicle_data_tolerates_failing_queries():
     with patch.object(api, "_post_graphql", side_effect=fake):
         extra = api.get_extra_vehicle_data()
     assert extra == {"chargeConfig": {"limits": {"charge": {"percent": 80}}}}
+
+
+def test_v2l_fragment_absent_is_probed_once_per_client():
+    api = _api()
+
+    def fake(name, query, variables):
+        return {"vehicle": {"__typename": "ElectricVehicle"}}
+
+    with patch.object(api, "_post_graphql", side_effect=fake) as post:
+        api.get_extra_vehicle_data()
+        api.get_extra_vehicle_data()
+    assert [c.args[0] for c in post.call_args_list].count("V2lStatus") == 1
+
+
+@pytest.mark.parametrize("first", [
+    {"vehicle": {"__typename": "ElectricAVK2Vehicle", "v2lStatus": None}},
+    {"vehicle": {}},
+    NissanConnectCommandError("temporary failure"),
+])
+def test_v2l_is_retried_after_null_missing_vehicle_or_error(first):
+    api = _api()
+    responses = iter([first, {"vehicle": {"__typename": "ElectricAVK2Vehicle",
+                                          "v2lStatus": {"state": "OFF"}}}])
+
+    def fake(name, query, variables):
+        if name != "V2lStatus":
+            return {"vehicle": {}}
+        result = next(responses)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    with patch.object(api, "_post_graphql", side_effect=fake):
+        assert "v2lStatus" not in api.get_extra_vehicle_data()
+        assert api.get_extra_vehicle_data()["v2lStatus"]["state"] == "OFF"
+
+
+def test_v2l_supported_vehicle_continues_polling():
+    api = _api()
+
+    def fake(name, query, variables):
+        if name == "V2lStatus":
+            return {"vehicle": {"__typename": "ElectricAVK2Vehicle", "v2lStatus": {"state": "OFF"}}}
+        return {"vehicle": {}}
+
+    with patch.object(api, "_post_graphql", side_effect=fake) as post:
+        api.get_extra_vehicle_data()
+        api.get_extra_vehicle_data()
+    assert [c.args[0] for c in post.call_args_list].count("V2lStatus") == 2

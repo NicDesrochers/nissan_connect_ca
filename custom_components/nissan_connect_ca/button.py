@@ -14,6 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import NissanConnectAuthenticationError, NissanConnectCommandError
 from .command_guard import guard_command
+from .climate_parameters import CLIMATE_OVERRIDES
 from .const import DOMAIN
 
 PARALLEL_UPDATES = 1
@@ -463,7 +464,10 @@ class NissanStartClimateButton(CoordinatorEntity, ButtonEntity):
         """Request remote climate start."""
         _LOGGER.debug("[%s] Start climate button pressed", self._api._label)
         try:
-            target_temp = 21.0
+            cloud_climate = (self.coordinator.data.get("climateDefaults") or {}).get("climate") or {}
+            target_temp = cloud_climate.get("value") if cloud_climate.get("unit") == "CELSIUS" else None
+            if target_temp is None:
+                target_temp = 21.0
             for state in self.hass.states.async_all("climate"):
                 if "nissan_connect_ca" in state.entity_id and (
                     str(self._entry.entry_id) in state.entity_id
@@ -479,7 +483,9 @@ class NissanStartClimateButton(CoordinatorEntity, ButtonEntity):
                             pass
 
             req_id = await self.hass.async_add_executor_job(
-                self._api.start_climate, target_temp, "CELSIUS"
+                self._api.start_climate_with_defaults, target_temp, "CELSIUS",
+                self._entry.data.get(CLIMATE_OVERRIDES),
+                (self.coordinator.data.get("extra") or {}).get("capabilities"),
             )
             if req_id:
                 self.hass.async_create_task(

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Any
 
+import requests
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
@@ -20,6 +21,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import NissanConnectAuthenticationError, NissanConnectCommandError
 from .command_guard import guard_command
+from .climate_parameters import CLIMATE_OVERRIDES
 from .const import DOMAIN
 
 PARALLEL_UPDATES = 1
@@ -94,9 +96,11 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Initialize the vehicle climate entity."""
         super().__init__(coordinator)
         self._api = api
+        self._entry = entry
         self._vehicle_name = entry.title
         self._attr_unique_id = f"{entry.entry_id}_climate"
         self._target_temperature: float | None = None
+        self._temperature_lock = asyncio.Lock()
         vehicle = coordinator.data["vehicle"]
         model = vehicle.get("model")
         year = vehicle.get("year")
@@ -122,12 +126,9 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         return None
 
     async def async_added_to_hass(self) -> None:
-        """Restore last state upon addition or read cloud defaults."""
+        """Restore the selected target, falling back to Nissan's default."""
         await super().async_added_to_hass()
-        cloud_target = self._get_cloud_target_temperature()
-        if cloud_target is not None:
-            self._target_temperature = cloud_target
-        elif (last_state := await self.async_get_last_state()) is not None:
+        if (last_state := await self.async_get_last_state()) is not None:
             if last_state.attributes.get(ATTR_TEMPERATURE) is not None:
                 try:
                     restored_temp = float(last_state.attributes[ATTR_TEMPERATURE])
@@ -135,13 +136,14 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                         self._target_temperature = restored_temp
                 except (ValueError, TypeError):
                     pass
+        if self._target_temperature is None:
+            self._target_temperature = self._get_cloud_target_temperature()
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        cloud_target = self._get_cloud_target_temperature()
-        if cloud_target is not None:
-            self._target_temperature = cloud_target
+        if self._target_temperature is None:
+            self._target_temperature = self._get_cloud_target_temperature()
         super()._handle_coordinator_update()
 
     @property
@@ -193,25 +195,35 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if temp is None:
             return
         target = float(round(float(temp)))
-        if self._attr_min_temp <= target <= self._attr_max_temp:
-            self._target_temperature = target
+        if not self._attr_min_temp <= target <= self._attr_max_temp:
+            raise HomeAssistantError("Climate temperature is outside the supported range")
+        async with self._temperature_lock:
+            await self._async_apply_temperature(target)
 
-        # Save to Nissan cloud as vehicle default setting
+    async def _async_apply_temperature(self, target: float) -> None:
+        """Apply and retain a requested temperature after Nissan accepts it."""
         try:
-            await self.hass.async_add_executor_job(
-                self._api.set_climate_defaults, self._target_temperature, "CELSIUS"
-            )
-            if self.coordinator.data:
-                self.coordinator.data.setdefault("climateDefaults", {})["climate"] = {
-                    "value": self._target_temperature,
-                    "unit": "CELSIUS",
-                }
-        except Exception as err:
-            _LOGGER.debug("[%s] Could not update Nissan cloud climate defaults: %s", self._vehicle_name, err)
-
-        if self.hvac_mode != HVACMode.OFF:
-            await self.async_set_hvac_mode(HVACMode.HEAT_COOL)
-        else:
+            if self.hvac_mode != HVACMode.OFF:
+                req_id = await self.hass.async_add_executor_job(
+                    self._api.start_climate_with_defaults, target, "CELSIUS",
+                    self._entry.data.get(CLIMATE_OVERRIDES),
+                    ((self.coordinator.data or {}).get("extra") or {}).get("capabilities"),
+                )
+                if req_id:
+                    self.hass.async_create_task(
+                        _async_poll_climate_request(self.hass, self._api, req_id, self.coordinator, self._vehicle_name)
+                    )
+            else:
+                await self.hass.async_add_executor_job(
+                    self._api.sync_climate_defaults, target, "CELSIUS",
+                    self._entry.data.get(CLIMATE_OVERRIDES),
+                    ((self.coordinator.data or {}).get("extra") or {}).get("capabilities"),
+                )
+        except (NissanConnectAuthenticationError, NissanConnectCommandError, requests.RequestException) as err:
+            raise HomeAssistantError(f"Failed to update climate defaults: {err}") from err
+        self._target_temperature = target
+        self.async_write_ha_state()
+        if self.hvac_mode == HVACMode.OFF:
             await self.coordinator.async_refresh()
 
     @guard_command(cooldown=0)
@@ -232,7 +244,9 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             _LOGGER.debug("[%s] Starting vehicle climate at %s °C", self._vehicle_name, target)
             try:
                 req_id = await self.hass.async_add_executor_job(
-                    self._api.start_climate, target, "CELSIUS"
+                    self._api.start_climate_with_defaults, target, "CELSIUS",
+                    self._entry.data.get(CLIMATE_OVERRIDES),
+                    ((self.coordinator.data or {}).get("extra") or {}).get("capabilities"),
                 )
                 if req_id:
                     self.hass.async_create_task(

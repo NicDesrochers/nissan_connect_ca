@@ -16,13 +16,14 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
 * **Full Climate Control (`climate`)**:
   * Real Home Assistant climate entity with cabin temperature display.
   * Adjust target temperature (18 °C to 32 °C) in 1 °C increments.
+  * The selected target is retained across updates and Home Assistant restarts; if no target was restored, the integration uses Nissan's saved default.
   * Turn heating/cooling on (`HEAT_COOL`) or off (`OFF`) directly from dashboards or automations.
   * Instant action feedback and follow-up request polling.
 * **Real Door Lock Entity (`lock`)**:
   * Standard Home Assistant lock entity reflecting door lock state in real-time.
   * Lock and unlock doors with a single stateful tile.
 * **Remote Action Buttons (`button`)**:
-  * **Start / Stop Engine** (`button.*_start_engine_remotely` / `button.*_stop_engine_remotely`): Remote engine controls appear for non-electric vehicles when Nissan reports the service as requested and an engine ID is available. The stop command uses `STOP` on the same endpoint as start; vehicle-side operation has not yet been confirmed.
+  * **Start / Stop Engine** (`button.*_start_engine_remotely` / `button.*_stop_engine_remotely`): Remote engine controls appear for non-electric vehicles when Nissan reports the service as requested and an engine ID is available.
   * **Start / Stop Charging** (`button.*_start_charging` / `button.*_stop_charging`): Remotely trigger or stop EV charging on demand (ideal for solar surplus or off-peak electricity automations).
   * **Locate Vehicle & Flash Lights** (`button.*_flash_lights`): Flash vehicle exterior lights to easily locate the car in dark parking areas.
   * **Honk Horn & Flash Lights** (`button.*_honk_horn_and_flash_lights`): Trigger both horn and lights for quick vehicle location.
@@ -48,6 +49,7 @@ Built from the ground up to support modern Nissan Canada telematics, WSO2 OAuth2
   * **Charge limit (EV, BaseElectric2)**: A `number` entity reads and sets the target charge limit (50–100 %, steps of 10).
   * **Charge history and V2L (EV)**: Sensors for the latest month's charge sessions, energy and duration, plus V2L state and minimum level, created only when Nissan returns data. When available, a V2L slider sets the minimum level from 10% to 95% in 5% increments.
   * **Configuration refresh**: Changing a charge limit, V2L limit or schedule refreshes the vehicle data; the integration also follows the request or polls the schedule until the change is reported.
+  * **Remote climate accessories**: When Nissan reports supported accessories, configuration switches select steering wheel heat, defrost and front or rear seat heat for the next remote start. The switches store local preferences; on vehicles exposing accessory defaults, the integration reads and, when needed, persistently updates Nissan's climate defaults to match the selected temperature and accessories before starting climate. Changing the climate target also updates those defaults. This can affect subsequent starts from the MyNISSAN app, but does not edit saved schedules. Without an override, Nissan's saved default is preserved; an unknown default remains unknown. On vehicles reporting `ElectricVehicle` without accessory defaults, such as the tested ARIYA, the target is retained in Home Assistant and sent with each start, but is not saved as a Nissan default.
   * **Alerts**: Diagnostic counters for enabled boundary, curfew and speed alerts, and the valet alert status (read-only; locations are not exposed).
   * **Tire pressures**: Read GraphQL tire pressures in PSI when available, falling back to RTS pressure values and units. Tire sensors are added when readings first become available; availability depends on the vehicle and Nissan backend.
   * **Last Communication** (`sensor.*_last_communication`): Timestamp when the car last uploaded telemetry to Nissan.

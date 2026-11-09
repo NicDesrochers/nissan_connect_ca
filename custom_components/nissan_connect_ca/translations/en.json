@@ -209,6 +209,12 @@
       }
     },
     "switch": {
+      "climate_steering_wheel": {"name": "Remote climate steering wheel heat"},
+      "climate_defrost": {"name": "Remote climate defrost"},
+      "climate_driver_seat": {"name": "Remote climate driver seat heat"},
+      "climate_passenger_seat": {"name": "Remote climate passenger seat heat"},
+      "climate_rear_left_seat": {"name": "Remote climate rear left seat heat"},
+      "climate_rear_right_seat": {"name": "Remote climate rear right seat heat"},
       "charge_schedule": {
         "name": "Charge schedule {number}"
       },

@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
+from .climate_parameters import climate_parameters
 from .const import (
     CONF_TOKEN,
     CONF_ID_TOKEN,
@@ -80,6 +81,7 @@ class NissanConnectCAAPI:
         self._account_lock = account_lock if account_lock is not None else threading.RLock()
         self._callback_diagnostic = "not-received"
         self._last_snapshot = {}
+        self._v2l_fragment_unsupported = False
 
         # Initialisation des jetons
         self._access_token = self._tokens.get(CONF_TOKEN)
@@ -365,7 +367,15 @@ class NissanConnectCAAPI:
                 return True
             try:
                 self._relogin_handler()
-            except Exception as err:
+            except requests.HTTPError as err:
+                if err.response is None or err.response.status_code not in (401, 403):
+                    raise
+                _LOGGER.warning("Automatic Nissan sign-in was rejected")
+                return False
+            except requests.RequestException:
+                _LOGGER.warning("Automatic Nissan sign-in failed because of a connection error")
+                raise
+            except (NissanConnectAuthenticationError, ValueError) as err:
                 _LOGGER.warning("Automatic Nissan sign-in failed: %s", type(err).__name__)
                 _LOGGER.debug("Automatic sign-in traceback", exc_info=True)
                 return False
@@ -453,7 +463,6 @@ class NissanConnectCAAPI:
         vehicle_id = self.vehicle_id
         vehicle_url = VEHICLE_INFO_URL.format(vehicle_id=vehicle_id)
         health_url = VEHICLE_HEALTH_URL.format(vehicle_id=vehicle_id)
-        engines_url = VEHICLE_ENGINES_URL.format(vehicle_id=vehicle_id)
         location_url = VEHICLE_LOCATION_URL.format(vehicle_id=vehicle_id)
 
         try:
@@ -482,15 +491,24 @@ class NissanConnectCAAPI:
                 err,
             )
 
-        engines_data = self._last_snapshot.get("engines", {})
-        try:
-            engines_data = self._get_json(engines_url, require_id_token=True)
-        except (requests.RequestException, ValueError) as err:
-            _LOGGER.warning(
-                "[%s] Erreur lors de la récupération de l'état du moteur (engines: %s), conservation des dernières données",
-                self._label,
-                err,
-            )
+        engine_type = vehicle_info.get("engineType")
+        is_electric = engine_type in ("Electric", "EV") or (
+            not engine_type
+            and any(model in str(vehicle_info.get("model", "")).lower() for model in ("leaf", "ariya"))
+        )
+        engines_data = {}
+        if not is_electric:
+            engines_data = self._last_snapshot.get("engines", {})
+            try:
+                engines_data = self._get_json(
+                    VEHICLE_ENGINES_URL.format(vehicle_id=vehicle_id), require_id_token=True
+                )
+            except (requests.RequestException, ValueError) as err:
+                _LOGGER.warning(
+                    "[%s] Erreur lors de la récupération de l'état du moteur (engines: %s), conservation des dernières données",
+                    self._label,
+                    err,
+                )
 
         location_data = self._last_snapshot.get("location", {})
         try:
@@ -519,11 +537,7 @@ class NissanConnectCAAPI:
         tire_pressure = self._last_snapshot.get("tirePressure")
         extra_data = self._last_snapshot.get("extra", {})
 
-        if (
-            vehicle_info.get("engineType") in ("Electric", "EV")
-            or "leaf" in str(vehicle_info.get("model", "")).lower()
-            or "ariya" in str(vehicle_info.get("model", "")).lower()
-        ):
+        if is_electric:
             try:
                 dynamic_data = self.get_dynamic_vehicle_data()
                 if dynamic_data.get("batteryStatus"):
@@ -723,7 +737,10 @@ class NissanConnectCAAPI:
             "batteryStatus { __typename level isPluggedIn isCharging remainingChargeTime remainingMileage(unit: $unit) { unit value } } "
             "climateStatus { __typename state temperature(unit: $temperatureUnit) { value unit } } } "
             "... on ElectricVehicle { climateDefaults { __typename climate(unit: $temperatureUnit) { value unit } } } "
-            "... on BaseAVK2Vehicle { climateDefaults { __typename climate(unit: $temperatureUnit) { value unit } } } } }"
+            "... on BaseAVK2Vehicle { climateDefaults { __typename climate(unit: $temperatureUnit) { value unit } "
+            "parameters { steeringWheelHeaterState defrostAndDeicerState seatsClimate { "
+            "frontDriverState frontPassengerState rearLeftPassengerState rearRightPassengerState "
+            "rearCenterPassengerState thirdLeftState thirdRightState } } } } } }"
         )
         tire_fragment = (
             "... on BaseAVKVehicle { tirePressure { lastUpdatedAt flPressure frPressure "
@@ -756,6 +773,13 @@ class NissanConnectCAAPI:
         if not vin:
             return {}
         queries = {
+            "capabilities": (
+                "VehicleCapabilities",
+                "query VehicleCapabilities($vin: String!) { vehicle(vin: $vin) { "
+                "capabilities { accessoriesDetails { seatHeater { enabled accessories { "
+                "secondLeftSeat secondRightSeat } } } } } }",
+                {"vin": vin},
+            ),
             "chargeSchedules": (
                 "VehicleChargeSchedules",
                 "query VehicleChargeSchedules($vin: String!) { vehicle(vin: $vin) { __typename "
@@ -798,6 +822,8 @@ class NissanConnectCAAPI:
         }
         extra = {}
         for key, (name, query, variables) in queries.items():
+            if key == "v2lStatus" and self._v2l_fragment_unsupported:
+                continue
             try:
                 vehicle = self._post_graphql(name, query, variables).get("vehicle") or {}
             except Exception as err:
@@ -805,6 +831,9 @@ class NissanConnectCAAPI:
                 continue
             if key in vehicle and vehicle[key] is not None:
                 extra[key] = vehicle[key]
+            elif key == "v2lStatus" and vehicle.get("__typename") and key not in vehicle:
+                self._v2l_fragment_unsupported = True
+                _LOGGER.debug("[%s] V2L fragment is not supported by this vehicle", self._label)
             elif key == "alerts" and any(k in vehicle for k in ("boundaryAlerts", "curfewAlerts", "speedAlerts", "valetAlert")):
                 extra[key] = {k: vehicle.get(k) for k in ("boundaryAlerts", "curfewAlerts", "speedAlerts", "valetAlert")}
         return extra
@@ -914,8 +943,8 @@ class NissanConnectCAAPI:
         return data.get("vehicle", {}).get("climateStatus", {})
 
     @synchronized_account
-    def set_climate_defaults(self, temperature_value, unit="CELSIUS"):
-        """Enregistre la consigne de température par défaut dans le cloud Nissan."""
+    def set_climate_defaults(self, temperature_value, unit="CELSIUS", parameters=None):
+        """Save the default climate settings, rejecting unsuccessful responses."""
         vin = self.vin or self.vehicle_id
         if not vin:
             raise ValueError("Vehicle ID or VIN is missing")
@@ -931,19 +960,45 @@ class NissanConnectCAAPI:
                 "temperatureValue": float(temperature_value),
                 "unit": unit,
             },
-            "parameters": {
-                "steeringWheelHeaterState": "OFF",
-                "defrostAndDeicerState": "OFF",
-                "seatsClimate": {
-                    "frontDriverState": "OFF",
-                    "frontPassengerState": "OFF",
-                },
-            },
+            "parameters": parameters or {},
         }
-        return self._post_graphql("SetClimateDefaults", query, variables)
+        data = self._post_graphql("SetClimateDefaults", query, variables)
+        result = data.get("setClimateDefaults") or {}
+        if result.get("success") is not True:
+            raise NissanConnectCommandError(
+                f"Nissan climate defaults update failed: {result.get('message') or 'no success confirmation'}"
+            )
+        return data
 
     @synchronized_account
-    def start_climate(self, temperature_value=21.0, unit="CELSIUS"):
+    def sync_climate_defaults(self, temperature_value, unit="CELSIUS", overrides=None, capabilities=None):
+        """Read current defaults and save the desired settings only when changed."""
+        vehicle = self.get_dynamic_vehicle_data()
+        defaults = vehicle.get("climateDefaults")
+        climate = (defaults or {}).get("climate") or {}
+        if climate.get("value") is None or climate.get("unit") != unit:
+            raise NissanConnectCommandError("Nissan climate defaults could not be read in the requested unit")
+        if vehicle.get("__typename") == "ElectricVehicle" and "parameters" not in defaults:
+            _LOGGER.debug(
+                "[%s] Climate target is retained locally; this vehicle does not expose accessory defaults",
+                self._label,
+            )
+            return None
+        snapshot = {"climateDefaults": defaults, "extra": {"capabilities": capabilities or {}}}
+        current = climate_parameters(snapshot)
+        desired = climate_parameters(snapshot, overrides)
+        if climate["value"] != float(temperature_value) or current != desired:
+            self.set_climate_defaults(temperature_value, unit, desired)
+        return desired
+
+    @synchronized_account
+    def start_climate_with_defaults(self, temperature_value, unit="CELSIUS", overrides=None, capabilities=None):
+        """Synchronize persistent Nissan defaults before starting climate."""
+        parameters = self.sync_climate_defaults(temperature_value, unit, overrides, capabilities)
+        return self.start_climate(temperature_value, unit, parameters or None)
+
+    @synchronized_account
+    def start_climate(self, temperature_value=21.0, unit="CELSIUS", parameters=None):
         """Démarre la climatisation à distance (habitacle)."""
         vin = self.vin or self.vehicle_id
         if not vin:
@@ -963,6 +1018,8 @@ class NissanConnectCAAPI:
                 "unit": unit,
             },
         }
+        if parameters:
+            variables["parameters"] = parameters
         data = self._post_graphql("StartClimate", query, variables)
         start_result = data.get("startClimate") or {}
         service_request_id = start_result.get("serviceRequestId")

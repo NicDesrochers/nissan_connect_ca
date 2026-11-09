@@ -13,6 +13,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import NissanConnectAuthenticationError, NissanConnectCommandError
 from .command_guard import guard_command
 from .command_refresh import async_poll_schedule
+from .climate_parameters import (
+    ACCESSORIES, CLIMATE_OVERRIDES, climate_accessory_supported, climate_parameters,
+)
 from .const import DOMAIN
 
 PARALLEL_UPDATES = 1
@@ -40,11 +43,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 if schedule.get("id") and uid not in known:
                     known.add(uid)
                     new.append(NissanScheduleSwitch(coordinator, entry, runtime.api, key, kind, schedule["id"], uid))
+        parameters = climate_parameters(coordinator.data)
+        for name, (field, seat, _) in ACCESSORIES.items():
+            available = (parameters.get(field) or {}).get(seat) if seat else parameters.get(field)
+            if (available is not None or climate_accessory_supported(coordinator.data, name)) and name not in known:
+                known.add(name)
+                new.append(NissanClimateAccessorySwitch(coordinator, entry, name))
         if new:
             async_add_entities(new)
 
     async_add_schedules()
     entry.async_on_unload(coordinator.async_add_listener(async_add_schedules))
+
+
+class NissanClimateAccessorySwitch(CoordinatorEntity, SwitchEntity):
+    """Local preferences for the next remote climate start."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator, entry, key) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._key = key
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self._attr_translation_key = key
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, str(entry.data["vehicle_id"]))})
+
+    @property
+    def is_on(self):
+        parameters = climate_parameters(self.coordinator.data, self._entry.data.get(CLIMATE_OVERRIDES))
+        field, seat, on_state = ACCESSORIES[self._key]
+        value = (parameters.get(field) or {}).get(seat) if seat else parameters.get(field)
+        return None if value is None else value == on_state
+
+    def _set(self, enabled):
+        overrides = {**self._entry.data.get(CLIMATE_OVERRIDES, {}), self._key: enabled}
+        self.hass.config_entries.async_update_entry(
+            self._entry, data={**self._entry.data, CLIMATE_OVERRIDES: overrides}
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs):
+        self._set(True)
+
+    async def async_turn_off(self, **kwargs):
+        self._set(False)
 
 
 class NissanScheduleSwitch(CoordinatorEntity, SwitchEntity):

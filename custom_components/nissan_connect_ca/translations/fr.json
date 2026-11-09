@@ -209,6 +209,12 @@
       }
     },
     "switch": {
+      "climate_steering_wheel": {"name": "Climatisation à distance : volant chauffant"},
+      "climate_defrost": {"name": "Climatisation à distance : dégivrage"},
+      "climate_driver_seat": {"name": "Climatisation à distance : siège conducteur chauffant"},
+      "climate_passenger_seat": {"name": "Climatisation à distance : siège passager chauffant"},
+      "climate_rear_left_seat": {"name": "Climatisation à distance : siège arrière gauche chauffant"},
+      "climate_rear_right_seat": {"name": "Climatisation à distance : siège arrière droit chauffant"},
       "charge_schedule": {
         "name": "Horaire de recharge {number}"
       },
