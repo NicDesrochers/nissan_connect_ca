@@ -4,7 +4,7 @@ A modern, standalone Home Assistant integration for **Nissan Connect Canada** (`
 
 Built to support modern Nissan Canada telematics, WSO2 OAuth2 Single Sign-On, and Nissan cloud APIs, including GraphQL and REST.
 
-The integration has been used with an **ARIYA** and a **2026 LEAF SL**. A tester also provided diagnostics for a **2026 Rogue**. This does not certify every model year, feature, or vehicle configuration: availability and behavior depend on the vehicle, its subscriptions, and the Nissan backend.
+The maintainer reports successful tests on an **ARIYA** and a **2026 LEAF SL**. A tester also confirmed remote engine stop on a **2026 Rogue**. These tests do not certify every model year, feature, or Home Assistant configuration: availability and behavior depend on the vehicle, its subscriptions, and the Nissan backend.
 
 > **Vehicle Compatibility Note:** This integration requires the modern **MyNISSAN Canada** cloud platform (`login.nissan.ca`). Older generation LEAF models (e.g. 2011–2017 using legacy Carwings / 2G-3G NissanConnect EV portals) use an older telematics backend and are not compatible with this integration.
 
@@ -15,7 +15,7 @@ The integration has been used with an **ARIYA** and a **2026 LEAF SL**. A tester
 * **Full Climate Control (`climate`)**:
   * Home Assistant climate entity displaying the temperature reported by Nissan's climate status.
   * Adjust target temperature (18 °C to 32 °C) in 1 °C increments.
-  * The selected target is retained across updates and Home Assistant restarts; if no target was restored, the integration uses Nissan's saved default.
+  * The selected target is retained across updates and Home Assistant restarts; if no target was restored, the integration uses Nissan's saved default when available, otherwise 21 °C.
   * Turn heating/cooling on (`HEAT_COOL`) or off (`OFF`) directly from dashboards or automations.
   * Changing the target while climate is running saves it for the next start without adjusting the active session. When climate is off, supported Nissan defaults are synchronized when the target changes.
   * Instant action feedback and follow-up request polling.
@@ -36,14 +36,14 @@ The integration has been used with an **ARIYA** and a **2026 LEAF SL**. A tester
   * **Remaining Charge Time** (`sensor.*_remaining_charge_time` in minutes).
   * **Charging Active Binary Sensor** (`binary_sensor.*_charging`).
   * **Charger Cable Plugged-In Binary Sensor** (`binary_sensor.*_plugged_in`).
-* **Adaptive, Server-Friendly Polling**:
-  * **Idle Polling:** 8 hours default (configurable from 1h to 24h) to avoid abusive polling and prevent account rate limits.
+* **Adaptive Polling**:
+  * **Idle Polling:** 8 hours default (configurable from 1h to 24h) to reduce requests and the risk of account rate limits.
   * **Charging Polling:** Automatically accelerates to 30 minutes (configurable 5m to 120m) while the vehicle is actively charging.
   * **Climate Polling:** Automatically accelerates to 10 minutes (configurable 2m to 60m) while cabin heating/cooling is active.
   * **Forced Battery Refresh:** While an EV is plugged in or charging, the integration sends Nissan's `refreshBatteryStatus` request every 2 hours by default (configurable 1h to 8h), since the cloud does not always receive battery updates during a charge. A "Refresh battery status" button triggers it manually.
-* **Multi-Vehicle Single Session (Zero Duplicate Logins)**:
+* **Multi-Vehicle Session Sharing**:
   * Having multiple Nissan vehicles (e.g. Ariya + Leaf) on the same account shares the exact same authenticated HTTP session, cookies, and OAuth tokens.
-  * Zero redundant authentications to avoid server bans or quota violations.
+  * Session sharing reduces redundant authentications but cannot guarantee that Nissan will not apply account limits.
   * Coordinated token renewal with thread locking across all configured vehicles.
 * **Diagnostics & Health Indicators**:
   * **Schedules (EV)**: One diagnostic count sensor and one configuration switch per charge/climate schedule reported by Nissan (the switch enables or disables the schedule).
@@ -92,6 +92,7 @@ Click **Configure** on any configured vehicle entry to customize the polling rat
 * **Normal update interval:** 1 to 24 hours (default: `8h`).
 * **Charging update interval:** 5 to 120 minutes (default: `30m`).
 * **Active climate update interval:** 2 to 60 minutes (default: `10m`).
+* **Battery refresh interval:** 1 to 8 hours (default: `2h`).
 
 ---
 
