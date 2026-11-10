@@ -48,6 +48,15 @@ async def test_setting_temperature_while_off_refreshes_vehicle_data():
     entity.async_write_ha_state.assert_called_once()
 
 
+async def test_temperature_above_maximum_is_rejected():
+    entity = NissanVehicleClimate.__new__(NissanVehicleClimate)
+    entity._api = Mock()
+    assert entity._attr_max_temp == 28.0
+    with pytest.raises(HomeAssistantError):
+        await entity.async_set_temperature(temperature=29)
+    entity._api.sync_climate_defaults.assert_not_called()
+
+
 @pytest.mark.parametrize("model", ["ARIYA", "LEAF", "Other"])
 async def test_temperature_while_running_is_saved_for_next_start(model):
     entity = NissanVehicleClimate.__new__(NissanVehicleClimate)

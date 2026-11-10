@@ -92,7 +92,8 @@ class NissanVehicleClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     )
     _attr_hvac_modes = [HVACMode.HEAT_COOL, HVACMode.OFF]
     _attr_min_temp = 18.0
-    _attr_max_temp = 32.0
+    # Higher targets were not applied reliably on a tested LEAF (28 °C was the highest confirmed).
+    _attr_max_temp = 28.0
     _attr_target_temperature_step = 1.0
 
     def __init__(self, coordinator, entry: ConfigEntry, api) -> None:

@@ -14,7 +14,7 @@ The maintainer reports successful tests on an **ARIYA** and a **2026 LEAF SL**. 
 
 * **Full Climate Control (`climate`)**:
   * Home Assistant climate entity displaying the temperature reported by Nissan's climate status.
-  * Adjust target temperature (18 °C to 32 °C) in 1 °C increments.
+  * Adjust target temperature (18 °C to 28 °C) in 1 °C increments. Higher targets were not applied reliably on a tested LEAF, and the app's "HI" setting is not exposed.
   * The selected target is retained across updates and Home Assistant restarts; if no target was restored, the integration uses Nissan's saved default when available, otherwise 21 °C.
   * Turn heating/cooling on (`HEAT_COOL`) or off (`OFF`) directly from dashboards or automations.
   * Changing the target while climate is running saves it for the next start without adjusting the active session. When climate is off, supported Nissan defaults are synchronized when the target changes.
