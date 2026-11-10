@@ -18,7 +18,7 @@ The maintainer reports successful tests on an **ARIYA** and a **2026 LEAF SL**. 
   * The selected target is retained across updates and Home Assistant restarts; if no target was restored, the integration uses Nissan's saved default when available, otherwise 21 °C.
   * Turn heating/cooling on (`HEAT_COOL`) or off (`OFF`) directly from dashboards or automations.
   * Changing the target while climate is running saves it for the next start without adjusting the active session. When climate is off, supported Nissan defaults are synchronized when the target changes.
-  * Instant action feedback and follow-up request polling.
+  * Instant action feedback and follow-up request polling. While Nissan reports the remote request as `PENDING`, the MyNISSAN app may be unable to adjust, start or stop the climate until the vehicle answers (observed on a LEAF; likely Nissan-side behavior).
   * Debug logs for `custom_components.nissan_connect_ca` identify the selected target, its source, Nissan's default, and the temperature sent in `StartClimate`. Review and redact debug logs before sharing: they may contain vehicle and account information.
 * **Real Door Lock Entity (`lock`)**:
   * Standard Home Assistant lock entity reflecting the latest door lock state reported by Nissan.
@@ -29,7 +29,7 @@ The maintainer reports successful tests on an **ARIYA** and a **2026 LEAF SL**. 
   * **Locate Vehicle & Flash Lights** (`button.*_flash_lights`): Flash vehicle exterior lights to easily locate the car in dark parking areas.
   * **Honk Horn & Flash Lights** (`button.*_honk_horn_and_flash_lights`): Trigger both horn and lights for quick vehicle location.
   * **Start / Stop Climate** (`button.*_start_climate` / `button.*_stop_climate`): Quick-action buttons for pre-conditioning cabin temperature.
-  * **Request vehicle status update**: Ask a supported vehicle to report fresh status to Nissan; this differs from the existing button that only reads the cloud data.
+  * **Request vehicle status update**: Ask a supported vehicle to report fresh status to Nissan; this differs from the existing button that only reads the cloud data. The vehicle position (`device_tracker`) is the last one uploaded by the vehicle's telemetry and may lag, for example after parking; this button can force an update. Use it sparingly, as repeated requests can drain the 12 V battery.
 * **Complete Electric Vehicle (EV) Metrics**:
   * **Battery Level** (`sensor.*_battery_level` in %).
   * **Remaining Autonomy / Range** (`sensor.*_remaining_range` in km with accurate metric conversion).
