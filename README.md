@@ -66,16 +66,12 @@ The maintainer reports successful tests on an **ARIYA** and a **2026 LEAF SL**. 
 
 ## Installation via HACS
 
+Nissan Connect Canada is available in the default HACS catalog; no custom repository is needed.
+
 1. Make sure you have [HACS](https://hacs.xyz/) installed in your Home Assistant instance.
 2. In Home Assistant, open **HACS** > **Integrations**.
-3. Click the three dots `...` in the top right corner and select **Custom repositories**.
-4. In the **Repository** field, paste:
-   ```text
-   https://github.com/NicDesrochers/nissan_connect_ca
-   ```
-5. Select **Integration** as the Category and click **Add**.
-6. Find **Nissan Connect Canada** in HACS and click **Download**.
-7. Restart Home Assistant.
+3. Search for **Nissan Connect Canada** and click **Download**.
+4. Restart Home Assistant.
 
 ---
 
